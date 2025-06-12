@@ -1,2 +1,2 @@
 # kickerklaus
-KLAUS – Kicker Live Analytics &amp; Universal System | university project at TH Köln
+KLAUS – Kicker Live Analytics Universal System | university project at TH Köln
