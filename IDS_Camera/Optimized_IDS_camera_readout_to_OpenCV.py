@@ -7,7 +7,7 @@ import threading
 import queue
 
 def main(): 
-    # CG: Hier wird die Kamera inittialisiren:
+    # CG: Hier wird die Kamera initialisiert:
     device, nodemap = setup_camera(width=1456, height=1088, fps=200.0, exposure_time=2000.0, gain=2.0)  
     
     # ─── Rest wie gehabt: DataStream, Puffer, Conversion, Acquisition ────────────
