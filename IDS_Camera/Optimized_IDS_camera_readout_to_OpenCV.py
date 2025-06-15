@@ -8,7 +8,7 @@ import queue
 
 def main(): 
     # CG: Hier wird die Kamera initialisiert:
-    device, nodemap = setup_camera(width=1456, height=1088, fps=200.0, exposure_time=2000.0, gain=2.0)  
+    device, nodemap = setup_camera(width=1456, height=1088, fps=500, exposure_time=2000.0, gain=2.0)  
     
     # ─── Rest wie gehabt: DataStream, Puffer, Conversion, Acquisition ────────────
 
@@ -63,15 +63,14 @@ def main():
             # Aufnahme stoppen
             if video_writer:
                 video_writer.release()
-                video_writer = None
             is_recording = False
-            print("Aufnahme beendet")
+            print("Aufnahme beendet.")
         else:
             # Aufnahme starten
             timestamp = time.strftime("%Y%m%d_%H%M%S")
-            output_file = f"IDS_Camera/video_outputs/ids_aufnahme_{timestamp}.mp4"
-            fourcc = cv2.VideoWriter.fourcc(*'mp4v')  # Verwende mp4v für MP4-Dateien
-            video_writer = cv2.VideoWriter(output_file, fourcc, 30.0, (width, height))
+            output_file = f"IDS_Camera/video_outputs/ids_aufnahme_{timestamp}.avi"
+            fourcc = cv2.VideoWriter.fourcc(*'MJPG')  # Verwende mp4v für MP4-Dateien
+            video_writer = cv2.VideoWriter(output_file, fourcc, fps, (width, height))
             is_recording = True
             if video_writer.isOpened():
                 print(f"Aufnahme gestartet: {output_file}")
@@ -93,7 +92,7 @@ def main():
             arr1d = converted.get_numpy_1D()
             frame = np.frombuffer(arr1d, dtype=np.uint8)
             frame = frame.reshape((height, width, 4))
-            #frame = cv2.resize(frame, (0,0), fx=0.2, fy=0.2)           # CG: Wirkt sich stark auf die Framerate aus (ca. -140 FPS)!
+            #frame = cv2.resize(frame, (0,0), fx=0.2, fy=0.2)     # CG: Wirkt sich stark auf die Framerate aus (ca. -140 FPS)!
             
             # Puffer zurückgeben (wichtig: sofort nach Konvertierung!)
             stream.QueueBuffer(buf)
@@ -201,14 +200,20 @@ def setup_camera(width, height, fps=200.0, exposure_time=2000.0, gain=2.0):
     # AcquisitionFrameRate (maximale FPS)
     try:
         fps_node = nodemap.FindNode("AcquisitionFrameRate")
-        fps_node.SetValue(fps)   # z.B. auf 120 FPS setzen
+        fps_max = nodemap.FindNode("AcquisitionFrameRateMax").Value()
+        if fps > fps_max:
+            fps = fps_max
+        elif fps < 1:
+            fps = 1
+        else:
+            fps_node.SetValue(fps)   # z.B. auf 120 FPS setzen
     except Exception:
         print("AcquisitionFrameRate nicht verfügbar")
 
     # Belichtungszeit in µs (ExposureTime)
     try:
         exp_node = nodemap.FindNode("ExposureTime")
-        exp_node.SetValue(exposure_time)                           # CG: 2000.0 sind 2 ms
+        exp_node.SetValue(exposure_time)             # CG: 2000.0 sind 2 ms
     except Exception:
         print("ExposureTime nicht verfügbar")
 
@@ -236,7 +241,8 @@ def setup_camera(width, height, fps=200.0, exposure_time=2000.0, gain=2.0):
         nodemap.FindNode("Width").SetValue(width)
         nodemap.FindNode("Height").SetValue(height)
         
-        print(f"Maximale Auflösung: {width_max}x{height_max}. Aktuelle Auflösung: {nodemap.FindNode("Width").Value()}x{nodemap.FindNode("Height").Value()}")              # CG: Hier wird die maximale Auflösung ausgegeben
+        # CG: Hier wird die maximale Auflösung ausgegeben
+        print(f"Maximale Auflösung: {width_max}x{height_max}. Aktuelle Auflösung: {nodemap.FindNode("Width").Value()}x{nodemap.FindNode("Height").Value()}")
         
         #nodemap.FindNode("OffsetX").SetValue(100)
         #nodemap.FindNode("OffsetY").SetValue(100)
