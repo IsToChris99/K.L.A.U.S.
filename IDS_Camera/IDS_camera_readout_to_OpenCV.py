@@ -1,174 +1,226 @@
+import time
 import cv2
 import numpy as np
 from ids_peak import ids_peak, ids_peak_ipl_extension
-from ids_peak_ipl import ids_peak_ipl
-import time
+import threading
+
+# --- Globale Variablen für den Datenaustausch ---
+# Sperre, um den Zugriff auf die geteilten Daten zu synchronisieren
+data_lock = threading.Lock() 
+# Hier speichern wir das letzte rohe Bayer-Bild und die zugehörigen Statistiken
+latest_raw_frame = None
+stats = {
+    "delta_t_ms": 0.0,
+    "acquisition_fps": 0.0,
+    "processing_fps": 0.0, # Misst die Geschwindigkeit des Akquise-Threads
+    "dropped_frames": 0,
+    "latency_ms": 0.0      # Zeigt den Jitter ohne den Clock Drift
+}
+# Variable für den sich anpassenden Zeit-Offset zwischen den Uhren
+adaptive_offset_ns = 0
+# Signal, um die Threads sauber zu beenden
+stop_event = threading.Event()
+
+def acquisition_thread_func(device):
+    """
+    Dieser Thread verwendet die Treiber-interne "NewestOnly"-Strategie und
+    einen adaptiven Offset, um den Clock Drift bei der Latenzmessung zu kompensieren.
+    """
+    global latest_raw_frame, stats, adaptive_offset_ns
+    
+    stream = None
+    nodemap = None
+    
+    try:
+        nodemap = device.RemoteDevice().NodeMaps()[0]
+        stream = device.DataStreams()[0].OpenDataStream()
+        
+        # Holen der NodeMap des Streams, um den Buffer-Modus zu setzen
+        stream_nodemap = stream.NodeMaps()[0]
+        stream_nodemap.FindNode("StreamBufferHandlingMode").SetCurrentEntry("NewestOnly")
+        print("Stream-Puffer-Modus auf 'NewestOnly' (Treiber-intern) gesetzt.")
+        
+        payload_size = int(nodemap.FindNode("PayloadSize").Value())
+        buffer_count = 20
+        for _ in range(buffer_count):
+            buf = stream.AllocAndAnnounceBuffer(payload_size)
+            stream.QueueBuffer(buf)
+            
+        # Akquise normal starten
+        stream.StartAcquisition()
+        nodemap.FindNode("AcquisitionStart").Execute()
+        nodemap.FindNode("AcquisitionStart").WaitUntilDone()
+        
+        last_timestamp_ns, last_frame_id, total_dropped_frames = 0, 0, 0
+        is_first_frame = True
+        
+        # Glättungsfaktor für den exponentiellen gleitenden Durchschnitt (EMA)
+        # Ein kleinerer Wert bedeutet langsamere Anpassung und mehr Glättung.
+        alpha = 0.005
+        
+        processing_fps_counter, processing_start_time = 0, time.time()
+        
+        print("Akquise-Thread gestartet mit adaptivem Offset...")
+
+        while not stop_event.is_set():
+            try:
+                buf = stream.WaitForFinishedBuffer(1000)
+                pc_time_arrival_ns = time.time_ns()
+            except ids_peak.Exception:
+                print("Timeout im Akquise-Thread. Beende...")
+                break
+
+            camera_time_capture_ns = buf.Timestamp_ns()
+            current_frame_id = buf.FrameID()
+            
+            delta_t_ms, acquisition_fps, latency_ms = 0.0, 0.0, 0.0
+            
+            # ADAPTIVE OFFSET LOGIK ZUR KOMPENSATION DES CLOCK DRIFTS
+            current_raw_offset = pc_time_arrival_ns - camera_time_capture_ns
+            
+            if is_first_frame:
+                is_first_frame = False
+                # Beim ersten Frame den Offset direkt setzen
+                adaptive_offset_ns = current_raw_offset
+            else:
+                # Bei allen weiteren Frames den Offset sanft anpassen (Low-Pass Filter)
+                adaptive_offset_ns = int((1 - alpha) * adaptive_offset_ns + alpha * current_raw_offset)
+                
+                # Die "echte" Latenz ist die Abweichung vom geglätteten Offset
+                latency_ns = current_raw_offset - adaptive_offset_ns
+                latency_ms = latency_ns / 1_000_000.0
+
+                # Delta-t Berechnung bleibt unberührt und korrekt
+                delta_t_ms = (camera_time_capture_ns - last_timestamp_ns) / 1_000_000.0
+                if delta_t_ms > 0: acquisition_fps = 1000.0 / delta_t_ms
+                
+                frame_id_diff = current_frame_id - last_frame_id
+                if frame_id_diff > 1: total_dropped_frames += (frame_id_diff - 1)
+            
+            last_timestamp_ns, last_frame_id = camera_time_capture_ns, current_frame_id
+            
+            processing_fps_counter += 1
+            current_time = time.time()
+            if current_time - processing_start_time >= 1.0:
+                elapsed = current_time - processing_start_time
+                with data_lock: stats["processing_fps"] = processing_fps_counter / elapsed
+                processing_fps_counter, processing_start_time = 0, current_time
+
+            ipl_image = ids_peak_ipl_extension.BufferToImage(buf)
+            frame_data = ipl_image.get_numpy_3D()
+            stream.QueueBuffer(buf)
+            
+            with data_lock:
+                latest_raw_frame = frame_data.copy()
+                stats["delta_t_ms"] = delta_t_ms
+                stats["acquisition_fps"] = acquisition_fps
+                stats["dropped_frames"] = total_dropped_frames
+                stats["latency_ms"] = latency_ms
+
+    finally:
+        # Robuster Aufräum-Block
+        print("Akquise-Thread wird beendet und räumt auf...")
+        if stream and nodemap:
+            try:
+                nodemap.FindNode("AcquisitionStop").Execute()
+                stream.StopAcquisition(ids_peak.AcquisitionStopMode_Default)
+                stream.Flush(ids_peak.DataStreamFlushMode_DiscardAll)
+                for b in stream.AnnouncedBuffers():
+                    stream.RevokeBuffer(b)
+            except Exception as e:
+                print(f"Fehler beim Aufräumen im Thread: {e}")
 
 def main():
-    # 1) IDS Peak initialisieren
+    """
+    Haupt-Thread: Initialisiert die Kamera, startet den Akquise-Thread
+    und kümmert sich um die langsame Anzeige der Bilder.
+    """
+    global latest_raw_frame, stats
+
     ids_peak.Library.Initialize()
-
-    # 2) Erstes Gerät im Control-Modus öffnen
-    dm = ids_peak.DeviceManager.Instance()
-    dm.Update()
-    if dm.Devices().empty():
-        print("Keine Kamera gefunden!")
-        return
-
-    device = None
-    for dev in dm.Devices():
-        if dev.IsOpenable():
-            device = dev.OpenDevice(ids_peak.DeviceAccessType_Control)
-            # CG: Hier wird die Modellbezeichnung der Kamera ausgegeben - Funktioniert aber nicht richtig bei der 3040.
-            print(f"Verbundene Kamera: {dev.ModelName}")
-            break
-    if device is None:
-        print("Keine openable device. Ist das IDS peak Cockpit noch geöffnet?")     #CG: angepasst.
-        return
-
-    # 3) Nodemap holen
-    nodemap = device.RemoteDevice().NodeMaps()[0]
-
-    # ─── Beispiel: Kamera-Parameter setzen ───────────────────────────────────────
-    # AcquisitionFrameRate (maximale FPS)
-    try:
-        fps_node = nodemap.FindNode("AcquisitionFrameRate")
-        fps_node.SetValue(250.00)   # z.B. auf 120 FPS setzen
-    except Exception:
-        print("AcquisitionFrameRate nicht verfügbar")
-
-    # Belichtungszeit in µs (ExposureTime)
-    try:
-        exp_node = nodemap.FindNode("ExposureTime")
-        exp_node.SetValue(2000.0)                           # CG: Sind hier die 2000.0 = 2 ms?
-    except Exception:
-        print("ExposureTime nicht verfügbar")
-
-    # Verstärkung (Gain)
-    try:
-        gain_node = nodemap.FindNode("Gain")
-        gain_node.SetValue(2.0)   # z.B. +10 dB
-    except Exception:
-        print("Gain nicht verfügbar")
-
-    # ROI (AOI) – Breite, Höhe, Offset
-    try:
-        # CG: Hier kann die ROI (Region of Interest) angepasst werden.
-        width = 1000
-        height = 1000
-        width_max  = int(nodemap.FindNode("WidthMax").Value())
-        height_max = int(nodemap.FindNode("HeightMax").Value())
-        
-        nodemap.FindNode("Width").SetValue(width_max)
-        nodemap.FindNode("Height").SetValue(height_max)
-        
-        print(f"Maximale Auflösung: {width_max}x{height_max}")              # CG: Hier wird die maximale Auflösung ausgegeben
-        
-        #nodemap.FindNode("OffsetX").SetValue(100)
-        #nodemap.FindNode("OffsetY").SetValue(100)
-    except Exception:
-        print("ROI-Einstellungen nicht verfügbar")
-
-    # ─── Rest wie gehabt: DataStream, Puffer, Conversion, Acquisition ────────────
-
-    stream  = device.DataStreams()[0].OpenDataStream()
-    payload_size = int(nodemap.FindNode("PayloadSize").Value())
-    buf_count    = stream.NumBuffersAnnouncedMinRequired()
-    for _ in range(buf_count):
-        buf = stream.AllocAndAnnounceBuffer(payload_size)
-        stream.QueueBuffer(buf)
-
-    # PixelFormat
-    try:
-        pf_node = nodemap.FindNode("PixelFormat")
-        pf_node.SetValue("BGR8_Packed")
-    except Exception:
-        pass
-
-    # Converter vorbereiten
-    width  = int(nodemap.FindNode("Width").Value())
-    height = int(nodemap.FindNode("Height").Value())
-    inp_pf = ids_peak_ipl.PixelFormat(pf_node.CurrentEntry().Value())
-    tgt_pf = ids_peak_ipl.PixelFormatName_BGR8
-    converter = ids_peak_ipl.ImageConverter()
-    converter.PreAllocateConversion(inp_pf, tgt_pf, width, height)
-
-    # Acquisition starten
-    stream.StartAcquisition()
-    nodemap.FindNode("AcquisitionStart").Execute()
-    nodemap.FindNode("AcquisitionStart").WaitUntilDone()
-
-    # ─── Live-Loop mit FPS-Overlay ───────────────────────────────────────────────
-
-    cv2.namedWindow("Live IDS Stream", cv2.WINDOW_NORMAL)
-    prev_time = time.time()
-    fps = 0.0
     
-    fps_mean = 0.0
-    frame_count = 1
-
+    device = None
     try:
-        print("Kamera gestartet. Drücke 'Esc', um zu beenden.")
-        while True:
-            buf = stream.WaitForFinishedBuffer(1000)
-            if buf is None:
-                continue
+        dm = ids_peak.DeviceManager.Instance()
+        dm.Update()
+        if dm.Devices().empty(): raise RuntimeError("Keine Kamera gefunden")
+        device = dm.Devices()[0].OpenDevice(ids_peak.DeviceAccessType_Control)
+        nodemap = device.RemoteDevice().NodeMaps()[0]
 
-            # Konvertieren
-            ipl_img   = ids_peak_ipl_extension.BufferToImage(buf)
-            converted = converter.Convert(ipl_img, tgt_pf)
+        # --- Kamera-Einstellungen ---
+        try:
+            nodemap.FindNode("PixelFormat").SetCurrentEntry("BayerRG8")
+            print("PixelFormat auf BayerRG8 (1 Byte/Pixel) gesetzt.")
+        except Exception as e:
+            print(f"Konnte PixelFormat nicht auf BayerRG8 setzen: {e}")
+            return
+        try:
+            nodemap.FindNode("AcquisitionFrameRateEnable").SetValue(True)
+        except Exception: 
+            print("'AcquisitionFrameRateEnable' Node nicht gefunden, wird ignoriert.")
+        try:
+            fps_node = nodemap.FindNode("AcquisitionFrameRate")
+            fps_node.SetValue(250.0)
+            print(f"Kamera-Framerate eingestellt auf: {fps_node.Value()} fps")
+        except Exception as e: print(f"FPS-Einstellung nicht möglich: {e}")
+        try:
+            exp_time = nodemap.FindNode("ExposureTime")
+            exp_time.SetValue(2000.0)
+            print(f"Belichtungszeit: {exp_time.Value()} µs")
+        except Exception as e: print(f"ExposureTime nicht verfügbar: {e}")
+        try:
+            nodemap.FindNode("GainAuto").SetCurrentEntry("Off")
+            gain_node = nodemap.FindNode("Gain")
+            gain_node.SetValue(10.0)
+            print(f"Gain eingestellt auf: {gain_node.Value()} dB")
+        except Exception as e: print(f"Gain-Einstellung nicht möglich: {e}")
+        try:
+            nodemap.FindNode("BalanceWhiteAuto").SetCurrentEntry("Continuous")
+            print("Auto-Weißabgleich auf 'Continuous' gesetzt.")
+        except Exception as e: print(f"Auto-Weißabgleich nicht möglich: {e}")
+        try:
+            nodemap.FindNode("BlackLevel").SetValue(10.0)
+            print(f"BlackLevel eingestellt auf: {nodemap.FindNode('BlackLevel').Value()}")
+        except Exception as e: print(f"BlackLevel-Einstellung nicht möglich: {e}")
 
-            # Puffer zurückgeben
-            stream.QueueBuffer(buf)
+        acq_thread = threading.Thread(target=acquisition_thread_func, args=(device,))
+        acq_thread.start()
 
-            # NumPy-Array formen
-            arr1d = converted.get_numpy_1D()
-            frame = np.frombuffer(arr1d, dtype=np.uint8)
-            frame = frame.reshape((height, width, 3))        
-            #frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR) 
-            #frame = cv2.resize(frame, (0,0), fx=0.2, fy=0.2)           # CG: Wirkt sich stark auf die Framerate aus (ca. -140 FPS)!
-
-            # FPS berechnen (auf Instant-Basis)
-            now = time.time()
-            dt  = now - prev_time
-            if dt > 0:
-                fps = 1.0 / dt
-            prev_time = now
-            
-            # Durchschnittliche FPS berechnen (werden nach Beenden des Loops ausgegeben)       #CG
-            fps_mean = (fps_mean * frame_count + fps) / (frame_count + 1)
-            frame_count += 1
-
-            """
-            CG:      
-            Das Overlay der FPS kann hier auskommentiert werden, um die Framerate um ca. 15 FPS zu erhöhen.
-            Durchschnittliche FPS werden am Ende des Programms ausgegeben.
-            """
-            
-            # Anzeige des Live-Bildes und Overlay: FPS oben links
-            text = f"FPS: {fps:.1f}"
-            cv2.putText(frame, text, (10, 25),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7,
-                        (0, 255, 0), 2, cv2.LINE_AA)
-            cv2.imshow("Live IDS Stream", frame)
-            
-            # Warte auf Tastendruck
-            if cv2.waitKey(1) == 27:    # ESC-Taste zum Beenden
-                break
-            
-    finally:
-        print(f"Programm wird beendet. Durchschnittliche FPS waren: {fps_mean:.1f}")
-        # Aufräumen
-        nodemap.FindNode("AcquisitionStop").Execute()
-        stream.StopAcquisition(ids_peak.AcquisitionStopMode_Default)
-        stream.Flush(ids_peak.DataStreamFlushMode_DiscardAll)
-        for b in stream.AnnouncedBuffers():
-            stream.RevokeBuffer(b)
+        cv2.namedWindow("Anzeige (ca. 30 FPS)", cv2.WINDOW_NORMAL)
         
-        #device.CloseDevice()                 #CG: die Funktion device.CloseDevice() gibt es nicht
+        while acq_thread.is_alive():
+            raw_frame_to_display, display_stats = None, {}
+            with data_lock:
+                if latest_raw_frame is not None:
+                    raw_frame_to_display = latest_raw_frame.copy()
+                    display_stats = stats.copy()
+            
+            if raw_frame_to_display is not None:
+                color_frame = cv2.cvtColor(raw_frame_to_display, cv2.COLOR_BAYER_RG2BGR)
+                font, font_scale, color, thickness = cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2
+                text_lines = [
+                    f"Delta t (Aufnahme): {display_stats.get('delta_t_ms', 0):.2f} ms",
+                    f"Akquisitions-FPS:   {display_stats.get('acquisition_fps', 0):.1f}",
+                    f"Verarbeitungs-FPS:  {display_stats.get('processing_fps', 0):.1f} (im Akquise-Thread)",
+                    f"Dropped Frames:     {display_stats.get('dropped_frames', 0)}",
+                    f"Latenz (Jitter):    {display_stats.get('latency_ms', 0):.2f} ms"
+                ]
+                for i, line in enumerate(text_lines):
+                    y = 30 + i * 30
+                    cv2.putText(color_frame, line, (10, y), font, font_scale, color, thickness, cv2.LINE_AA)
+                cv2.imshow("Anzeige (ca. 30 FPS)", color_frame)
 
+            if cv2.waitKey(33) & 0xFF == ord('q'):
+                print("'q' gedrückt. Beende Threads...")
+                stop_event.set()
+                break
+        
+        acq_thread.join()
+
+    finally:
         ids_peak.Library.Close()
         cv2.destroyAllWindows()
+        print("Programm sauber beendet.")
 
 if __name__ == "__main__":
     main()
