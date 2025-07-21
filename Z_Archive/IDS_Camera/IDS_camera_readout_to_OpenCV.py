@@ -196,7 +196,7 @@ def main():
                     display_stats = stats.copy()
             
             if raw_frame_to_display is not None:
-                color_frame = cv2.cvtColor(raw_frame_to_display, cv2.COLOR_BAYER_RG2BGR)
+                color_frame = cv2.cvtColor(raw_frame_to_display, cv2.COLOR_BAYER_RG2RGB)
                 font, font_scale, color, thickness = cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2
                 text_lines = [
                     f"Delta t (Aufnahme): {display_stats.get('delta_t_ms', 0):.2f} ms",
@@ -210,7 +210,7 @@ def main():
                     cv2.putText(color_frame, line, (10, y), font, font_scale, color, thickness, cv2.LINE_AA)
                 cv2.imshow("Anzeige (ca. 30 FPS)", color_frame)
 
-            if cv2.waitKey(33) & 0xFF == ord('q'):
+            if cv2.waitKey(10) & 0xFF == ord('q'):
                 print("'q' gedrückt. Beende Threads...")
                 stop_event.set()
                 break
