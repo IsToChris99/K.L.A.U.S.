@@ -4,15 +4,18 @@ import numpy as np
 from ids_peak import ids_peak, ids_peak_ipl_extension
 import threading
 import queue
+ 
+
+
 import os
 
 # --- 1. KONFIGURATION ---
-RAM_BUFFER_LIMIT_GB = 16.0
-VIDEO_FILENAME = "11.avi"
+RAM_BUFFER_LIMIT_GB = 32.0
+VIDEO_FILENAME = "07.avi"
 VIDEO_CODEC = 'MJPG'
 CAMERA_FPS = 250
 EXPOSURE_TIME_US = 2000.0
-GAIN_DB = 10.0
+GAIN_DB = 15.0
 WHITE_BALANCE_MODE = "Continuous"
 PIXEL_FORMAT = "BayerRG8"
 
@@ -29,7 +32,7 @@ def acquisition_thread_func(device, frame_queue_ref):
         nodemap = device.RemoteDevice().NodeMaps()[0]
         stream = device.DataStreams()[0].OpenDataStream()
         stream_nodemap = stream.NodeMaps()[0]
-        stream_nodemap.FindNode("StreamBufferHandlingMode").SetCurrentEntry("OldestFirst")
+        stream_nodemap.FindNode("StreamBufferHandlingMode").SetCurrentEntry("NewestOnly")
         
         payload_size = int(nodemap.FindNode("PayloadSize").Value())
         buffer_count = 50 
