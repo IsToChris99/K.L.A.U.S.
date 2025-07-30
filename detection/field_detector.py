@@ -12,7 +12,6 @@ from config import (
     FIELD_CALIBRATION_FILE,
     FIELD_CLOSE_KERNEL_SIZE, FIELD_OPEN_KERNEL_SIZE,
     GOAL_KERNEL_SIZE, GOAL_THIN_FILTER_KERNEL_SIZE,
-    DEBUG_GOAL_DETECTION,
     COLOR_FIELD_CONTOUR, COLOR_FIELD_CORNERS, COLOR_FIELD_BOUNDS, COLOR_GOALS
 )
 
@@ -43,8 +42,6 @@ class FieldDetector:
         self.goal_detection_confidence = GOAL_DETECTION_CONFIDENCE
         self.field_stability_frames = FIELD_STABILITY_FRAMES
         self.stable_detection_counter = 0
-        
-        self.debug_goal_detection = DEBUG_GOAL_DETECTION
         
         # Calibration data save/load
         self.calibration_file = FIELD_CALIBRATION_FILE
@@ -102,22 +99,6 @@ class FieldDetector:
         goal_search_mask = cv2.morphologyEx(goal_search_mask, cv2.MORPH_CLOSE, goal_kernel)
         
         goal_contours, _ = cv2.findContours(goal_search_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        
-        # Debug visualization
-        if hasattr(self, 'debug_goal_detection') and self.debug_goal_detection:
-            cv2.imshow("Goal Search Mask", goal_search_mask)
-            cv2.imshow("Original Goal Mask", goal_mask)
-            cv2.imshow("Extended Field Mask", extended_field_mask)
-            cv2.imshow("Field Mask", field_mask)
-            
-            debug_frame = frame.copy()
-            cv2.drawContours(debug_frame, goal_contours, -1, (0, 255, 255), 2)
-            for i, contour in enumerate(goal_contours):
-                area = cv2.contourArea(contour)
-                x, y, w, h = cv2.boundingRect(contour)
-                cv2.putText(debug_frame, f"C{i}: A={area:.0f}", (x, y-10),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 255), 1)
-            cv2.imshow("All Goal Contours (Before Filter)", debug_frame)
         
         goals = []
         min_goal_area = MIN_GOAL_AREA
