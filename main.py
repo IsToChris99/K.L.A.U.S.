@@ -260,55 +260,8 @@ class CombinedTracker:
                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
         
         # Show key commands
-        cv2.putText(frame, "Keys: 1=Ball, 2=Field, 3=Both, r=Calibration, s=Screenshot, d=Debug, g=Reset Score, h=Help", 
+        cv2.putText(frame, "Keys: 1=Ball, 2=Field, 3=Both, r=Calibration, s=Screenshot, g=Reset Score, h=Help", 
                    (10, frame.shape[0] - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1)
-    
-    def print_camera_info(self):
-        """Shows detailed camera calibration info in the console"""
-        camera_info = self.stream.get_camera_info()
-        
-        print("\n" + "=" * 70)
-        print("Camera Calibration Info:")
-        print("=" * 70)
-        
-        if camera_info['calibrated']:
-            print("✓ Camera is calibrated and undistortion is active")
-
-            # Performance-Status
-            if camera_info.get('optimization_active', False):
-                print("Performance optimization active:")
-                print("   ✓ Remap maps precomputed - very fast undistortion!")
-                if camera_info.get('image_size'):
-                    size = camera_info['image_size']
-                    print(f"   ✓ Optimized for image size: {size[0]}x{size[1]}")
-            else:
-                print("⚠  PERFORMANCE-WARNING:")
-                print("   ✗ Remap maps not initialized")
-                print("   → First frames will be processed more slowly")
-
-            print(f"\nCamera Matrix:")
-            for i, row in enumerate(camera_info['camera_matrix']):
-                print(f"  [{row[0]:10.2f}, {row[1]:10.2f}, {row[2]:10.2f}]")
-
-            print(f"\nDistortion Coefficients:")
-            dist_coeffs = camera_info['dist_coeffs']
-            print(f"  k1: {dist_coeffs[0]:10.6f}  (radial distortion)")
-            print(f"  k2: {dist_coeffs[1]:10.6f}  (radial distortion)")
-            print(f"  p1: {dist_coeffs[2]:10.6f}  (tangential distortion)")
-            print(f"  p2: {dist_coeffs[3]:10.6f}  (tangential distortion)")
-            print(f"  k3: {dist_coeffs[4]:10.6f}  (radial distortion)")
-
-            print(f"\nSource: calibration_data.json")
-            print("Algorithm: cv2.remap() with precomputed maps")
-            print("All images will be automatically undistorted!")
-        else:
-            print("✗ No camera calibration found")
-            print("Create a calibration_data.json file with:")
-            print("  - cameraMatrix: 3x3 camera matrix")
-            print("  - distCoeffs: 5 distortion coefficients")
-            print("No undistortion active - lens distortion will remain!")
-        
-        print("=" * 70)
     
     def start_threads(self):
         """Starts the tracking threads"""
@@ -357,7 +310,6 @@ class CombinedTracker:
         print("  '3' - Combined view (default)")
         print("  'r' - Start/recalibrate field calibration")
         print("  's' - Save screenshot (with ball curve if available)")
-        print("  'd' - Toggle debug goal detection")
         print("  'c' - Show camera calibration info")
         print("  'h' - Show help")
         print("=" * 60)
@@ -453,29 +405,11 @@ class CombinedTracker:
                     print("  '3' - Show combined view")
                     print("  'r' - Start/recalibrate field calibration")
                     print("  's' - Save screenshot (with ball curve if available)")
-                    print("  'd' - Toggle debug goal detection")
                     print("  'c' - Show camera calibration info")
                     print("  'g' - Reset score to 0-0")
                     print("  'h' - Show help")
                     print("=" * 60)
-                elif key == ord('c'):
-                    # Show camera information
-                    self.print_camera_info()
-                elif key == ord('d'):
-                    # Toggle debug goal detection
-                    self.field_detector.debug_goal_detection = not self.field_detector.debug_goal_detection
-                    status = "enabled" if self.field_detector.debug_goal_detection else "disabled"
-                    print(f"Debug Goal Detection {status}")
-                    if not self.field_detector.debug_goal_detection:
-                        # Close debug window
-                        try:
-                            cv2.destroyWindow("Goal Search Mask")
-                            cv2.destroyWindow("Original Goal Mask")
-                            cv2.destroyWindow("Extended Field Mask")
-                            cv2.destroyWindow("Field Mask")
-                            cv2.destroyWindow("All Goal Contours (Before Filter)")
-                        except:
-                            pass
+
                 elif key == ord('g'):
                     # Reset score
                     self.goal_scorer.reset_score()

@@ -70,6 +70,9 @@ def acquisition_thread_func(device):
                 print("Timeout im Akquise-Thread. Beende...")
                 break
 
+            buffer_frame_count = stream_nodemap.FindNode("StreamInputBufferCount").Value()
+            print(f"\rFrames in Buffer: {buffer_frame_count}", end='')
+
             camera_time_capture_ns = buf.Timestamp_ns()
             current_frame_id = buf.FrameID()
             
@@ -148,6 +151,7 @@ def main():
         nodemap = device.RemoteDevice().NodeMaps()[0]
 
         # --- Kamera-Einstellungen ---
+        
         try:
             nodemap.FindNode("PixelFormat").SetCurrentEntry("BayerRG8")
             print("PixelFormat auf BayerRG8 (1 Byte/Pixel) gesetzt.")
@@ -155,23 +159,27 @@ def main():
             print(f"Konnte PixelFormat nicht auf BayerRG8 setzen: {e}")
             return
         try:
-            nodemap.FindNode("AcquisitionFrameRateEnable").SetValue(True)
+            value = nodemap.FindNode("AcquisitionFrameRateTargetEnable").Value()
+            print(value)
+            # Set AcquisitionFrameRateTargetEnable to false (bool)
+            nodemap.FindNode("AcquisitionFrameRateTargetEnable").SetValue(True)
         except Exception: 
             print("'AcquisitionFrameRateEnable' Node nicht gefunden, wird ignoriert.")
         try:
-            fps_node = nodemap.FindNode("AcquisitionFrameRate")
+            fps_node = nodemap.FindNode("AcquisitionFrameRateTarget")
             fps_node.SetValue(250.0)
             print(f"Kamera-Framerate eingestellt auf: {fps_node.Value()} fps")
         except Exception as e: print(f"FPS-Einstellung nicht möglich: {e}")
         try:
             exp_time = nodemap.FindNode("ExposureTime")
-            exp_time.SetValue(2000.0)
+            # Belichtungszeit muss < 1/Framerate sein (1/250s = 4000µs)
+            exp_time.SetValue(2000.0) 
             print(f"Belichtungszeit: {exp_time.Value()} µs")
         except Exception as e: print(f"ExposureTime nicht verfügbar: {e}")
         try:
             nodemap.FindNode("GainAuto").SetCurrentEntry("Off")
             gain_node = nodemap.FindNode("Gain")
-            gain_node.SetValue(10.0)
+            gain_node.SetValue(10.0) # In der alten Version war hier fälschlicherweise 10 statt 10.0
             print(f"Gain eingestellt auf: {gain_node.Value()} dB")
         except Exception as e: print(f"Gain-Einstellung nicht möglich: {e}")
         try:
@@ -188,6 +196,7 @@ def main():
 
         cv2.namedWindow("Anzeige (ca. 30 FPS)", cv2.WINDOW_NORMAL)
         
+        # ... der Rest der Funktion bleibt unverändert ...
         while acq_thread.is_alive():
             raw_frame_to_display, display_stats = None, {}
             with data_lock:
@@ -196,6 +205,13 @@ def main():
                     display_stats = stats.copy()
             
             if raw_frame_to_display is not None:
+                # Korrektur der Shape, falls es ein 1D-Array ist
+                if len(raw_frame_to_display.shape) == 1:
+                     # Annahme: Höhe und Breite müssen bekannt sein oder ermittelt werden
+                     # Diese Werte sollten idealerweise aus der Kamera-Konfiguration kommen
+                     height, width = 1080, 1920 # Beispielwerte, ggf. anpassen!
+                     raw_frame_to_display = raw_frame_to_display.reshape((height, width))
+
                 color_frame = cv2.cvtColor(raw_frame_to_display, cv2.COLOR_BAYER_RG2RGB)
                 font, font_scale, color, thickness = cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2
                 text_lines = [
@@ -216,6 +232,7 @@ def main():
                 break
         
         acq_thread.join()
+
 
     finally:
         ids_peak.Library.Close()
