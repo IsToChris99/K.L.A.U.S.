@@ -11,7 +11,7 @@ import os
 
 # --- 1. KONFIGURATION ---
 RAM_BUFFER_LIMIT_GB = 32.0
-VIDEO_FILENAME = "07.avi"
+VIDEO_FILENAME = "12.avi"
 VIDEO_CODEC = 'MJPG'
 CAMERA_FPS = 250
 EXPOSURE_TIME_US = 2000.0
@@ -192,10 +192,10 @@ def main():
         print("--- Kamera wird konfiguriert ---")
         nodemap.FindNode("PixelFormat").SetCurrentEntry(PIXEL_FORMAT)
         try:
-            nodemap.FindNode("AcquisitionFrameRateEnable").SetValue(True)
+            nodemap.FindNode("AcquisitionFrameRateTargetEnable").SetValue(True)
         except ids_peak.Exception: pass
         
-        fps_node = nodemap.FindNode("AcquisitionFrameRate")
+        fps_node = nodemap.FindNode("AcquisitionFrameRateTarget")
         fps_node.SetValue(CAMERA_FPS)
         nodemap.FindNode("ExposureTime").SetValue(EXPOSURE_TIME_US)
         nodemap.FindNode("Gain").SetValue(GAIN_DB)

@@ -12,7 +12,8 @@ from config import (
     FIELD_CALIBRATION_FILE,
     FIELD_CLOSE_KERNEL_SIZE, FIELD_OPEN_KERNEL_SIZE,
     GOAL_KERNEL_SIZE, GOAL_THIN_FILTER_KERNEL_SIZE,
-    COLOR_FIELD_CONTOUR, COLOR_FIELD_CORNERS, COLOR_FIELD_BOUNDS, COLOR_GOALS
+    COLOR_FIELD_CONTOUR, COLOR_FIELD_CORNERS, COLOR_FIELD_BOUNDS, COLOR_GOALS,
+    WIDTH_RATIO, HEIGHT_RATIO, AREA_RATIO,
 )
 
 class FieldDetector:
@@ -71,65 +72,123 @@ class FieldDetector:
         
         return None, field_mask
     
-    def detect_goals(self, frame, field_contour):
-        """Detects goals based on bright areas at the field edges"""
-        if field_contour is None:
+    def detect_goals(self, frame, field_corners):
+        """Detects goals positioned at the center of the shorter sides of the field"""
+        if field_corners is None:
             return []
         
-        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        if len(field_corners) < 4:
+            return []
         
-        goal_mask = cv2.inRange(hsv, self.goal_lower, self.goal_upper)
+        top_left, top_right, bottom_right, bottom_left = field_corners
         
-        field_mask = np.zeros(frame.shape[:2], dtype=np.uint8)
-        cv2.fillPoly(field_mask, [field_contour], 255)
-        
-        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (30, 30))
-        extended_field_mask = cv2.dilate(field_mask, kernel)
-        
-        goal_search_mask = cv2.bitwise_and(goal_mask, extended_field_mask)
-        goal_search_mask = cv2.bitwise_xor(goal_search_mask, 
-                                          cv2.bitwise_and(goal_search_mask, field_mask))
-        
-        goal_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, GOAL_KERNEL_SIZE)
-        goal_search_mask = cv2.morphologyEx(goal_search_mask, cv2.MORPH_CLOSE, goal_kernel)
-        
-        # Additional thin filter for better goal detection
-        thin_filter_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, GOAL_THIN_FILTER_KERNEL_SIZE)
-        goal_search_mask = cv2.morphologyEx(goal_search_mask, cv2.MORPH_OPEN, thin_filter_kernel)
-        goal_search_mask = cv2.morphologyEx(goal_search_mask, cv2.MORPH_CLOSE, goal_kernel)
-        
-        goal_contours, _ = cv2.findContours(goal_search_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        top_length = np.linalg.norm(top_right - top_left)
+        right_length = np.linalg.norm(bottom_right - top_right)
+        bottom_length = np.linalg.norm(bottom_left - bottom_right)
+        left_length = np.linalg.norm(top_left - bottom_left)
+
+        horizontal_avg = (top_length + bottom_length) / 2
+        vertical_avg = (left_length + right_length) / 2
         
         goals = []
-        min_goal_area = MIN_GOAL_AREA
         
-        for contour in goal_contours:
-            area = cv2.contourArea(contour)
-            if area > min_goal_area:
-                # Bounding box for goal contour
-                x, y, w, h = cv2.boundingRect(contour)
+        if horizontal_avg < vertical_avg:
+            top_goal_center = ((top_left + top_right) / 2).astype(int)
+            goals.append({
+                'center': tuple(top_goal_center),
+                'type': 'top',
+                'bounds': (top_goal_center[0] - 40 * WIDTH_RATIO, top_goal_center[1] - 20 * HEIGHT_RATIO, 80 * WIDTH_RATIO, 40 * HEIGHT_RATIO),
+                'area': 80 * WIDTH_RATIO * 40 * HEIGHT_RATIO,
+                'contour': None
+            })
+            
+            bottom_goal_center = ((bottom_left + bottom_right) / 2).astype(int)
+            goals.append({
+                'center': tuple(bottom_goal_center),
+                'type': 'bottom',
+                'bounds': (bottom_goal_center[0] - 40 * WIDTH_RATIO, bottom_goal_center[1] - 20 * HEIGHT_RATIO, 80 * WIDTH_RATIO, 40 * HEIGHT_RATIO),
+                'area': 80 * WIDTH_RATIO * 40 * HEIGHT_RATIO,
+                'contour': None
+            })
+        else:
+            left_goal_center = ((top_left + bottom_left) / 2).astype(int)
+            goals.append({
+                'center': tuple(left_goal_center),
+                'type': 'left',
+                'bounds': (int(left_goal_center[0] - 20 * WIDTH_RATIO), int(left_goal_center[1] - 40 * HEIGHT_RATIO), int(40 * WIDTH_RATIO), int(80 * HEIGHT_RATIO)),
+                'area': 20 * WIDTH_RATIO * 80 * HEIGHT_RATIO,
+                'contour': None
+            })
+            
+            right_goal_center = ((top_right + bottom_right) / 2).astype(int)
+            goals.append({
+                'center': tuple(right_goal_center),
+                'type': 'right',
+                'bounds': (int(right_goal_center[0] - 20 * WIDTH_RATIO), int(right_goal_center[1] - 40 * HEIGHT_RATIO), int(40 * WIDTH_RATIO), int(80 * HEIGHT_RATIO)),
+                'area': 20 * WIDTH_RATIO * 80 * HEIGHT_RATIO,
+                'contour': None
+            })
+        
 
-                field_bounds = cv2.boundingRect(field_contour)
-                fx, fy, fw, fh = field_bounds
+
+        # """Detects goals based on bright areas at the field edges"""
+        # if field_contour is None:
+        #     return []
+        
+        # hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        
+        # goal_mask = cv2.inRange(hsv, self.goal_lower, self.goal_upper)
+        
+        # field_mask = np.zeros(frame.shape[:2], dtype=np.uint8)
+        # cv2.fillPoly(field_mask, [field_contour], 255)
+        
+        # kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (30, 30))
+        # extended_field_mask = cv2.dilate(field_mask, kernel)
+        
+        # goal_search_mask = cv2.bitwise_and(goal_mask, extended_field_mask)
+        # goal_search_mask = cv2.bitwise_xor(goal_search_mask, 
+        #                                   cv2.bitwise_and(goal_search_mask, field_mask))
+        
+        # goal_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, GOAL_KERNEL_SIZE)
+        # goal_search_mask = cv2.morphologyEx(goal_search_mask, cv2.MORPH_CLOSE, goal_kernel)
+        
+        # # Additional thin filter for better goal detection
+        # thin_filter_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, GOAL_THIN_FILTER_KERNEL_SIZE)
+        # goal_search_mask = cv2.morphologyEx(goal_search_mask, cv2.MORPH_OPEN, thin_filter_kernel)
+        # goal_search_mask = cv2.morphologyEx(goal_search_mask, cv2.MORPH_CLOSE, goal_kernel)
+        
+        # goal_contours, _ = cv2.findContours(goal_search_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
+        # goals = []
+        # min_goal_area = MIN_GOAL_AREA
+        
+        # for contour in goal_contours:
+        #     area = cv2.contourArea(contour)
+        #     if area > min_goal_area:
+        #         # Bounding box for goal contour
+        #         x, y, w, h = cv2.boundingRect(contour)
+
+        #         field_bounds = cv2.boundingRect(field_contour)
+        #         fx, fy, fw, fh = field_bounds
                 
-                # Classify goal type based on position
-                goal_type = "unknown"
-                if y + h < fy + fh * 0.2:
-                    goal_type = "top"
-                elif y > fy + fh * 0.8:
-                    goal_type = "bottom"
-                elif x + w < fx + fw * 0.2:
-                    goal_type = "left"
-                elif x > fx + fw * 0.8:
-                    goal_type = "right"
+        #         # Classify goal type based on position
+        #         goal_type = "unknown"
+        #         if y + h < fy + fh * 0.2:
+        #             goal_type = "top"
+        #         elif y > fy + fh * 0.8:
+        #             goal_type = "bottom"
+        #         elif x + w < fx + fw * 0.2:
+        #             goal_type = "left"
+        #         elif x > fx + fw * 0.8:
+        #             goal_type = "right"
                 
-                goals.append({
-                    'contour': contour,
-                    'bounds': (x, y, w, h),
-                    'center': (x + w//2, y + h//2),
-                    'area': area,
-                    'type': goal_type
-                })
+        #         goals.append({
+        #             'contour': contour,
+        #             'bounds': (x, y, w, h),
+        #             'center': (x + w//2, y + h//2),
+        #             'area': area,
+        #             'type': goal_type
+        #         })
         
         return goals
     
@@ -200,7 +259,7 @@ class FieldDetector:
             if self.stable_detection_counter >= self.field_stability_frames:
                 metrics = self.calculate_field_metrics(field_contour)
                 
-                goals = self.detect_goals(frame, field_contour)
+                goals = self.detect_goals(frame, metrics['corners'])
                 
                 self.field_contour = field_contour
                 self.goals = goals

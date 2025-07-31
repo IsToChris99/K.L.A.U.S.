@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 import time
 from threading import Thread, Lock
+from queue import Queue, LifoQueue, Empty
 
 # Local imports
 from detection.ball_detector import BallDetector  
@@ -19,10 +20,13 @@ from config import (
 # ================== COMBINED TRACKER ==================
 
 class CombinedTracker:
+
+    
+
     """Combined Ball and Field Tracker with Multithreading"""
     
     def __init__(self, video_path, use_webcam=False):
-        
+        self.count = 0
         self.video_path = video_path
         self.use_webcam = use_webcam
         
@@ -52,7 +56,9 @@ class CombinedTracker:
         self.field_thread = None
         self.frame_reader_thread = None
         self.running = False
-        self.frame_lock = Lock()
+        self.frame_queue = LifoQueue(maxsize=1) 
+        self.result_lock = Lock()
+
         
         self.current_frame = None
         self.ball_result = None
@@ -66,25 +72,54 @@ class CombinedTracker:
         
     def frame_reader_thread_method(self):
         """Centralized frame reading thread"""
+        
         while self.running:
+            t_start = time.perf_counter()
             ret, frame = self.stream.read()
+            t_read = time.perf_counter()
             if not ret or frame is None:
+                self.frame_queue.put(None)
                 break
                 
             frame = cv2.resize(frame, (FRAME_WIDTH, FRAME_HEIGHT))
-            
-            with self.frame_lock:
+            t_resize = time.perf_counter()
+            with self.result_lock:
                 self.current_frame = frame.copy()
+
+            self.count += 1
+            if self.count % 250 == 0: # Alle 250 Frames
+                read_duration = (t_read - t_start) * 1000  # in ms
+                resize_duration = (t_resize - t_read) * 1000 # in ms
+                # Diese print-Anweisung ist für Debugging gedacht und sollte später entfernt werden.
+                print(f"Read: {read_duration:.2f} ms, Resize: {resize_duration:.2f} ms")
+
+            # Versuche, den neuen Frame in die Queue zu legen.
+            # Wenn die Queue voll ist (Analyse-Threads sind zu langsam),
+            # leere sie zuerst, um den alten Frame zu verwerfen und Platz für den neuen zu machen.
+            if self.frame_queue.full():
+                try:
+                    # Entferne den alten, nicht verarbeiteten Frame
+                    self.frame_queue.get_nowait()
+                except Empty:
+                    pass # Kann passieren, wenn ein anderer Thread ihn genau jetzt geholt hat
+            
+            # Lege den neusten Frame in die nun freie Queue
+            self.frame_queue.put(frame)
+
+        # Signal zum Beenden an die Worker senden
+        self.frame_queue.put(None)
+        self.frame_queue.put(None)
         
     def ball_tracking_thread(self):
         """Thread for Ball-Tracking"""
         while self.running:
-            # Get current frame from centralized reader
-            with self.frame_lock:
-                if self.current_frame is None:
-                    
-                    continue
-                frame = self.current_frame.copy()
+            try:
+                frame = self.frame_queue.get(timeout=1.0)
+                if frame is None:
+                    break
+            except Empty:
+                continue
+                
             
             # Field bounds for restricted ball search
             field_bounds = None
@@ -108,7 +143,7 @@ class CombinedTracker:
                 self.ball_tracker.missing_counter
             )
             
-            with self.frame_lock:
+            with self.result_lock:
                 self.ball_result = {
                     'detection': detection_result,
                     'smoothed_pts': list(self.ball_tracker.smoothed_pts),
@@ -120,12 +155,12 @@ class CombinedTracker:
     def field_tracking_thread(self):
         """Thread for Field-Tracking"""
         while self.running:
-            # Get current frame from centralized reader
-            with self.frame_lock:
-                if self.current_frame is None:
-                    
-                    continue
-                frame = self.current_frame.copy()
+            try:
+                frame = self.frame_queue.get(timeout=1.0)
+                if frame is None:
+                    break
+            except Empty:
+                continue
             
             # Use FieldDetector's calibration logic
             if (self.calibration_requested and 
@@ -134,7 +169,7 @@ class CombinedTracker:
                 self.field_detector.calibrate(frame)
             
             # Store current field data
-            with self.frame_lock:
+            with self.result_lock:
                 self.field_data = {
                     'calibrated': self.field_detector.calibrated,
                     'field_contour': self.field_detector.field_contour,
@@ -151,13 +186,16 @@ class CombinedTracker:
     
     def draw_ball_visualization(self, frame):
         """Draws ball visualization"""
-        if self.ball_result is None:
-            return
-            
-        detection = self.ball_result['detection']
-        smoothed_pts = self.ball_result['smoothed_pts']
-        missing_counter = self.ball_result['missing_counter']
+        with self.result_lock:
+            ball_result_copy = self.ball_result.copy() if self.ball_result else None
         
+        if ball_result_copy is None:
+            return
+
+        detection = ball_result_copy['detection']
+        smoothed_pts = ball_result_copy['smoothed_pts']
+        missing_counter = ball_result_copy['missing_counter']
+
         # Draw ball info
         if detection[0] is not None:
             center, radius, confidence = detection
@@ -191,41 +229,44 @@ class CombinedTracker:
     
     def draw_field_visualization(self, frame):
         """Draws field visualization"""
-        if self.field_data is None:
+        with self.result_lock:
+            field_data_copy = self.field_data.copy() if self.field_data else None
+        
+        if field_data_copy is None:
             return
 
         # Field contour
-        if self.field_data['calibrated'] and self.field_data['field_contour'] is not None:
-            cv2.drawContours(frame, [self.field_data['field_contour']], -1, COLOR_FIELD_CONTOUR, 3)
+        if field_data_copy['calibrated'] and field_data_copy['field_contour'] is not None:
+            cv2.drawContours(frame, [field_data_copy['field_contour']], -1, COLOR_FIELD_CONTOUR, 3)
 
         # Field corners
-        if self.field_data['field_corners'] is not None:
-            for i, corner in enumerate(self.field_data['field_corners']):
+        if field_data_copy['field_corners'] is not None:
+            for i, corner in enumerate(field_data_copy['field_corners']):
                 cv2.circle(frame, tuple(corner), 8, COLOR_FIELD_CORNERS, -1)
                 cv2.putText(frame, f"{i+1}", (corner[0]+10, corner[1]-10),
                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, COLOR_FIELD_CORNERS, 2)
 
         # Goals
-        for i, goal in enumerate(self.field_data['goals']):
+        for i, goal in enumerate(field_data_copy['goals']):
             x, y, w, h = goal['bounds']
             cv2.rectangle(frame, (x, y), (x+w, y+h), COLOR_GOALS, 2)
             cv2.putText(frame, f"Goal {i+1} ({goal['type']})", (x, y-10),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, COLOR_GOALS, 2)
 
         # Field limits - Uses minAreaRect
-        if (self.field_data['calibrated'] and 
-            self.field_data.get('field_rect_points') is not None):
-            cv2.drawContours(frame, [self.field_data['field_rect_points']], -1, COLOR_FIELD_BOUNDS, 2)
-        elif self.field_data['calibrated'] and self.field_data['field_bounds']:
+        if (field_data_copy['calibrated'] and 
+            field_data_copy.get('field_rect_points') is not None):
+            cv2.drawContours(frame, [field_data_copy['field_rect_points']], -1, COLOR_FIELD_BOUNDS, 2)
+        elif field_data_copy['calibrated'] and field_data_copy['field_bounds']:
             # Fallback: normal bounding box rectangle
-            x, y, w, h = self.field_data['field_bounds']
+            x, y, w, h = field_data_copy['field_bounds']
             cv2.rectangle(frame, (x, y), (x+w, y+h), COLOR_FIELD_BOUNDS, 2)
 
         # Calibration info
-        if (self.field_data['calibration_requested'] and 
-            self.field_data['calibration_mode'] and 
-            not self.field_data['calibrated']):
-            progress = min(self.field_data['stable_counter'] / 30, 1.0)
+        if (field_data_copy['calibration_requested'] and 
+            field_data_copy['calibration_mode'] and 
+            not field_data_copy['calibrated']):
+            progress = min(field_data_copy['stable_counter'] / 30, 1.0)
             progress_width = int(300 * progress)
             
             cv2.rectangle(frame, (10, 130), (310, 160), (50, 50, 50), -1)
@@ -319,13 +360,14 @@ class CombinedTracker:
         try:
             while True:
                 # Get current frame for processing from centralized reader
-                with self.frame_lock:
+                with self.result_lock:
                     if self.current_frame is None:
                         continue
                     frame = self.current_frame.copy()
                 
                 self.frame_count += 1
                 current_time = time.time()
+                measure_time = time.time()
                 
                 # Calculate processing FPS every second
                 if current_time - self.last_fps_time >= 1.0:
@@ -414,7 +456,9 @@ class CombinedTracker:
                     # Reset score
                     self.goal_scorer.reset_score()
                     print("Score reset!")
-                
+
+                #print(f"\r{(time.time() - measure_time) * 1000000}", end="")
+
         finally:
             # Cleanup
             self.stop_threads()

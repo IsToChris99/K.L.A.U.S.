@@ -1,40 +1,56 @@
 # config.py
 
 # ================== VIDEO & CAMERA SETTINGS ==================
-VIDEO_PATH = "C:/Users/joshu/OneDrive - TH Köln/Python Workspace/Tischkicker/0_Material/2025-07-03_Testvideos_250fps/07.avi"
-USE_WEBCAM = False
-FRAME_WIDTH = 720
-FRAME_HEIGHT = 540
+VIDEO_PATH = "C:\\Users\\Tim\\OneDrive - TH Köln\\03_Hochschule\\6_Semester\\Kicker_Projekt\\08.avi"
+USE_WEBCAM = True
+FRAME_WIDTH = 1440
+FRAME_HEIGHT = 1080
+
+REFERENCE_WIDTH = 720
+REFERENCE_HEIGHT = 540
+
+WIDTH_RATIO = FRAME_WIDTH / REFERENCE_WIDTH
+HEIGHT_RATIO = FRAME_HEIGHT / REFERENCE_HEIGHT
+
+AREA_RATIO = WIDTH_RATIO * HEIGHT_RATIO
 
 # ================== CALIBRATION FILES ==================
-CAMERA_CALIBRATION_FILE = "Z_Archive/Cam_Lens_Calibration/calibration_data.json"
+CAMERA_CALIBRATION_FILE = "kickerklaus\\Z_Archive\\Cam_Lens_Calibration\\calibration_data.json"
 FIELD_CALIBRATION_FILE = "field_calibration.json"
 
 # ================== BALL DETECTION (HSV VALUES) ==================
-# Orange ball - main color
-BALL_ORANGE_LOWER = (0, 120, 200)
-BALL_ORANGE_UPPER = (30, 255, 255)
+# # Orange ball - main color
+# BALL_ORANGE_LOWER = (0, 120, 200)
+# BALL_ORANGE_UPPER = (30, 255, 255)
+
+# # Orange ball - alternative values
+# BALL_ORANGE_LOWER_ALT = (10, 120, 200)
+# BALL_ORANGE_UPPER_ALT = (40, 255, 255)
+
+# Yellow ball - main color
+BALL_ORANGE_LOWER = (20, 50, 10)
+BALL_ORANGE_UPPER = (40, 255, 255)
 
 # Orange ball - alternative values
-BALL_ORANGE_LOWER_ALT = (10, 120, 200)
+BALL_ORANGE_LOWER_ALT = (20, 120, 200)
 BALL_ORANGE_UPPER_ALT = (40, 255, 255)
 
 # ================== FIELD DETECTION (HSV VALUES) ==================
 # Green field - main color
-FIELD_GREEN_LOWER = (20, 40, 40)
-FIELD_GREEN_UPPER = (80, 255, 100)
+FIELD_GREEN_LOWER = (100, 110, 20)
+FIELD_GREEN_UPPER = (110, 120, 80)
 
 # Green field - alternative values
-FIELD_GREEN_LOWER_ALT = (35, 30, 30)
-FIELD_GREEN_UPPER_ALT = (100, 255, 100)
+FIELD_GREEN_LOWER_ALT = (100, 110, 60)
+FIELD_GREEN_UPPER_ALT = (115, 130, 100)
 
 # Goals (bright/white areas)
-GOAL_LOWER = (0, 0, 140)
+GOAL_LOWER = (0, 0, 70)
 GOAL_UPPER = (180, 255, 255)
 
 # ================== TRACKING PARAMETERS ==================
 # Ball tracking
-BALL_SMOOTHER_WINDOW_SIZE = 20
+BALL_SMOOTHER_WINDOW_SIZE = 1
 BALL_MAX_MISSING_FRAMES = 100
 BALL_CONFIDENCE_THRESHOLD = 0.6
 
@@ -42,7 +58,7 @@ BALL_CONFIDENCE_THRESHOLD = 0.6
 FIELD_MIN_AREA = 50000  # Minimum field size in pixels
 FIELD_STABILITY_FRAMES = 30  # Frames for stable detection
 GOAL_DETECTION_CONFIDENCE = 0.7
-MIN_GOAL_AREA = 1000  # Minimum size for goal detection
+MIN_GOAL_AREA = 800 * AREA_RATIO # Minimum size for goal detection
 
 # Goal scoring system
 GOAL_DISAPPEAR_FRAMES = 15  # Frames without detection to count as goal

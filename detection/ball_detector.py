@@ -8,7 +8,7 @@ from config import (
     BALL_CONFIDENCE_THRESHOLD, BALL_TRAIL_MAX_LENGTH,
     DISPLAY_FPS, COLOR_BALL_HIGH_CONFIDENCE, 
     COLOR_BALL_MED_CONFIDENCE, COLOR_BALL_LOW_CONFIDENCE,
-    COLOR_BALL_TRAIL, BALL_TRAIL_THICKNESS_FACTOR
+    COLOR_BALL_TRAIL, BALL_TRAIL_THICKNESS_FACTOR, WIDTH_RATIO, HEIGHT_RATIO, AREA_RATIO
 )
 
 class BallDetector:
@@ -89,29 +89,29 @@ class BallDetector:
         confidence = min(best['score'] / 100.0, 1.0)
 
         if confidence >= self.confidence_threshold:
-            return best['center'], best['radius'], confidence
+            return best['center'], best['radius'], confidence, kalman_prediction
         else:
-            return None, 0, confidence
-    
+            return None, 0, confidence, kalman_prediction
+
     def _evaluate_ball_candidate(self, contour, frame, kalman_prediction):
         """Evaluates a contour candidate for ball detection"""
 
         area = cv2.contourArea(contour)
-        if area < 10:
+        if area < 10 * AREA_RATIO:
             return 0, None, 0
             
         ((x, y), radius) = cv2.minEnclosingCircle(contour)
         center = (int(x), int(y))
-        
-        if not (3 < radius < 15):
+
+        if not (3 * WIDTH_RATIO < radius < 15 * WIDTH_RATIO):
             return 0, center, radius
             
         score = 0
         
         # 1. Scale
-        if 5 <= radius <= 9:
+        if 5 * WIDTH_RATIO <= radius <= 9 * WIDTH_RATIO:
             score += 30
-        elif 4 <= radius <= 11:
+        elif 4 * WIDTH_RATIO <= radius <= 11 * WIDTH_RATIO:
             score += 20
         else:
             score += 10
@@ -143,9 +143,9 @@ class BallDetector:
                 self.last_good_detection[1] + kalman_prediction[1]
             )
             kalman_distance = np.sqrt((center[0] - predicted_pos[0])**2 + (center[1] - predicted_pos[1])**2)
-            if kalman_distance < 25:
-                score += 10 * (1.0 - min(kalman_distance / 25.0, 1.0))
-                
+            if kalman_distance < 25 * WIDTH_RATIO:
+                score += 10 * (1.0 - min(kalman_distance / (25 * WIDTH_RATIO), 1.0))
+
         # 6. Color intensity in the region
         roi = frame[max(0, int(y-radius)):min(frame.shape[0], int(y+radius)),
                    max(0, int(x-radius)):min(frame.shape[1], int(x+radius))]
@@ -156,45 +156,6 @@ class BallDetector:
             score += 10 * orange_ratio
             
         return score, center, radius
-
-    def draw_ball_info(self, frame, detection_result):
-        """Draws extended ball information with confidence"""
-        if detection_result[0] is not None:
-            center, radius, confidence = detection_result
-            
-            if confidence >= 0.8:
-                color = COLOR_BALL_HIGH_CONFIDENCE
-            elif confidence >= 0.6:
-                color = COLOR_BALL_MED_CONFIDENCE
-            else:
-                color = COLOR_BALL_LOW_CONFIDENCE
-                
-            cv2.circle(frame, center, 3, color, -1)
-            cv2.circle(frame, center, int(radius), color, 2)
-
-            cv2.putText(frame, f"R: {radius:.1f}", (center[0] + 15, center[1] - 15), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
-            cv2.putText(frame, f"Conf: {confidence:.2f}", (center[0] + 15, center[1] + 5), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1)
-            
-            # Show Kalman velocity
-            if self.kalman_tracker.initialized:
-                velocity = self.kalman_tracker.get_velocity()
-                cv2.arrowedLine(frame, center, 
-                               (int(center[0] + velocity[0]*30), int(center[1] + velocity[1]*30)),
-                               (255, 0, 255), 2)
-        
-        # Show missing counter
-        cv2.putText(frame, f"Missing: {self.missing_counter}", (10, 90),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-
-    def draw_ball_trail(self, frame):
-        """Draws ball trail"""
-        for i in range(1, len(self.smoothed_pts)):
-            if self.smoothed_pts[i - 1] is None or self.smoothed_pts[i] is None:
-                continue
-            thickness = int(np.sqrt(BALL_TRAIL_MAX_LENGTH / float(i + 1)) * BALL_TRAIL_THICKNESS_FACTOR)
-            cv2.line(frame, self.smoothed_pts[i - 1], self.smoothed_pts[i], COLOR_BALL_TRAIL, thickness)
 
     def _constrain_to_field(self, position, field_bounds):
         """Constrains the position to the field boundaries"""
@@ -238,8 +199,8 @@ class BallDetector:
 
     def update_tracking(self, detection_result, field_bounds=None):
         """Extended tracking logic with Kalman filter and field boundaries"""
-        center, radius, confidence = detection_result if detection_result[0] is not None else (None, 0, 0)
-        
+        center, radius, confidence, velocity = detection_result if detection_result[0] is not None else (None, 0, 0, None)
+
         kalman_pos = self.kalman_tracker.update(center)
 
         # Kalman prediction constrained to field

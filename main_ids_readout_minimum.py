@@ -20,11 +20,15 @@ def main():
         # 2. Start the Acquisition Stream
         camera.start()
         print("Stream started. Press 'q' in the camera window to exit.")
-
+        count = 0
         # 3. The Main Processing Loop
         while True:
             # 3.1. Get the latest frame from the camera class.
             bayer_frame, metadata = camera.get_frame()
+            count += 1
+            if count % 250 == 0: # Alle 250 Frames
+                # Diese print-Anweisung ist für Debugging gedacht und sollte später entfernt werden.
+                print(f"\rTimestamp: {metadata.get('timestamp_ns', 'N/A')}", end="")
             
             # 3.2. Check if a frame was successfully received.
             if bayer_frame is not None:

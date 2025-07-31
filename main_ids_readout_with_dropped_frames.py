@@ -36,7 +36,7 @@ def analysis_thread_func(camera: IDS_Camera):
     last_timestamp_ns = 0
     last_frame_id = -1
     total_dropped_count = 0
-    
+    count = 0
     while not stop_event.is_set():
         # Get the latest raw data from the camera acquisition thread
         bayer_frame, metadata = camera.get_frame()
