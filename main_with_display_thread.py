@@ -8,7 +8,7 @@ from queue import Queue, LifoQueue, Empty
 from detection.ball_detector import BallDetector  
 from detection.field_detector import FieldDetector
 from analysis.goal_scorer import GoalScorer
-from camera.videostream import VideoStream
+from input.videostream import VideoStream
 from config import (
     VIDEO_PATH, USE_WEBCAM, FRAME_WIDTH, FRAME_HEIGHT,
     DISPLAY_FPS, DISPLAY_INTERVAL,

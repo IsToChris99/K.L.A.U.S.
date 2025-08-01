@@ -11,7 +11,7 @@ from analysis.goal_scorer import GoalScorer
 from input.videostream import VideoStream
 from processing.preprocessor import Preprocessor
 from config import (
-    VIDEO_PATH, USE_WEBCAM, FRAME_WIDTH, FRAME_HEIGHT,
+    VIDEO_PATH, DETECTION_WIDTH, DETECTION_HEIGHT,
     DISPLAY_FPS, DISPLAY_INTERVAL,
     COLOR_BALL_HIGH_CONFIDENCE, COLOR_BALL_MED_CONFIDENCE, 
     COLOR_BALL_LOW_CONFIDENCE, COLOR_BALL_TRAIL,
@@ -31,7 +31,7 @@ class CombinedTracker:
 
         self.video_path = video_path
         
-        self.ball_tracker = BallDetector(video_path, USE_WEBCAM)
+        self.ball_tracker = BallDetector()
         self.field_detector = FieldDetector()
         self.goal_scorer = GoalScorer()
         
@@ -88,7 +88,7 @@ class CombinedTracker:
             frame = self.camera_calibration.undistort_frame(frame)
 
             # Resize frame to target size
-            frame = cv2.resize(frame, (FRAME_WIDTH, FRAME_HEIGHT))
+            frame = cv2.resize(frame, (DETECTION_WIDTH, DETECTION_HEIGHT))
             t_resize = time.perf_counter()
             
             with self.result_lock:

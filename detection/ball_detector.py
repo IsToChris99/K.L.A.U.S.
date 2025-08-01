@@ -11,10 +11,7 @@ from config import (
 
 class BallDetector:
     """Main class for ball tracking"""
-    def __init__(self, video_path, use_webcam=False):
-
-        self.video_path = video_path
-        self.use_webcam = use_webcam
+    def __init__(self):
 
         self.lower = BALL_LOWER
         self.upper = BALL_UPPER

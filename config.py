@@ -2,16 +2,25 @@
 
 # ================== VIDEO & CAMERA SETTINGS ==================
 # VIDEO_PATH = "C:\\Users\\Tim\\OneDrive - TH Köln\\03_Hochschule\\6_Semester\\Kicker_Projekt\\08.avi"
-VIDEO_PATH = "C:/Users/joshu/OneDrive - TH Köln/Kicker (Kicker Klaus) - General/Kicker_Videos/2025-07-31_IDS_Cam_250fps_mit_neuen_Figuren/11.avi"
-USE_WEBCAM = True
-FRAME_WIDTH = 720
-FRAME_HEIGHT = 540
+VIDEO_PATH = "C:/Users/joshu/OneDrive - TH Köln/Kicker (Kicker Klaus) - General/Kicker_Videos/2025-07-31_IDS_Cam_250fps_mit_neuen_Figuren/12.avi"
+
+CAM_WIDTH = 1440
+CAM_HEIGHT = 1080
+
+CAM_X_OFFSET = 0
+CAM_Y_OFFSET = 0
+
+DETECTION_WIDTH = 720
+DETECTION_HEIGHT = 540
+
+DISPLAY_WIDTH = 720
+DISPLAY_HEIGHT = 540
 
 REFERENCE_WIDTH = 720
 REFERENCE_HEIGHT = 540
 
-WIDTH_RATIO = FRAME_WIDTH / REFERENCE_WIDTH
-HEIGHT_RATIO = FRAME_HEIGHT / REFERENCE_HEIGHT
+WIDTH_RATIO = DETECTION_WIDTH / REFERENCE_WIDTH
+HEIGHT_RATIO = DETECTION_HEIGHT / REFERENCE_HEIGHT
 
 AREA_RATIO = WIDTH_RATIO * HEIGHT_RATIO
 
@@ -37,15 +46,23 @@ BALL_LOWER_ALT = (20, 120, 200)
 BALL_UPPER_ALT = (40, 255, 255)
 
 # ================== FIELD DETECTION (HSV VALUES) ==================
-# Green field - main color
+# Green field - main color - Live Color
 FIELD_GREEN_LOWER = (100, 110, 20)
 FIELD_GREEN_UPPER = (110, 120, 80)
 
-# Green field - alternative values
+# Green field - alternative values - Live Color
 FIELD_GREEN_LOWER_ALT = (100, 110, 60)
 FIELD_GREEN_UPPER_ALT = (115, 130, 100)
 
-# Goals (bright/white areas)
+# # Green field - main color - Video Color
+# FIELD_GREEN_LOWER = (50, 20, 20)
+# FIELD_GREEN_UPPER = (80, 100, 100)
+
+# # Green field - alternative values - Video Color
+# FIELD_GREEN_LOWER_ALT = (80, 90, 80)
+# FIELD_GREEN_UPPER_ALT = (120, 255, 255)
+
+# Goals (bright/white areas) - unused at the moment
 GOAL_LOWER = (0, 0, 70)
 GOAL_UPPER = (180, 255, 255)
 
