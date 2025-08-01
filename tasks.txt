@@ -1,0 +1,42 @@
+
+
+This is a list of tasks that can be implemented.
+If you are currently working or planning on working on one of these, please enter your name in parentheses.
+
+==============================================================================
+Detection
+==============================================================================
+
+Automatic Color detection:
+    -   A function that automatically recognizes the color of the ball and field
+
+Goal detection:
+    -   Currently the goal detection works by detecting the ball near the goal. If the ball is too fast, there is no frame of the ball inside the goal and no goal is detected.
+        There needs to be a way to recognize that the ball was aiming for the goal before it disappeares, so that a goal can be counted.
+
+Field detection:
+    -   Visible bounding box is not the same box that is used for the mask in which the ball is detected (Joshua)
+    -   Find field via colored marker
+
+Ball detection:
+    -   Ball trail lags behind due to kalman prediction
+
+Player detection:
+    -   Player detection (Tim)
+
+
+==============================================================================
+Camera
+==============================================================================
+
+Camera readout:
+    -   Camera readout is too slow due to resize and camera calibration. (Tim)
+
+Camera calibration:
+    -   Perspective transformation
+
+
+==============================================================================
+Statistics
+==============================================================================
+
