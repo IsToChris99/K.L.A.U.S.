@@ -8,13 +8,14 @@ from queue import Queue, LifoQueue, Empty
 from detection.ball_detector import BallDetector  
 from detection.field_detector import FieldDetector
 from analysis.goal_scorer import GoalScorer
-from camera.videostream import VideoStream
+from input.videostream import VideoStream
+from processing.preprocessor import Preprocessor
 from config import (
     VIDEO_PATH, USE_WEBCAM, FRAME_WIDTH, FRAME_HEIGHT,
     DISPLAY_FPS, DISPLAY_INTERVAL,
     COLOR_BALL_HIGH_CONFIDENCE, COLOR_BALL_MED_CONFIDENCE, 
     COLOR_BALL_LOW_CONFIDENCE, COLOR_BALL_TRAIL,
-    COLOR_FIELD_CONTOUR, COLOR_FIELD_CORNERS, COLOR_FIELD_BOUNDS, COLOR_GOALS
+    COLOR_FIELD_CONTOUR, COLOR_FIELD_CORNERS, COLOR_FIELD_BOUNDS, COLOR_GOALS, CAMERA_CALIBRATION_FILE, BALL_TRAIL_MAX_LENGTH, BALL_TRAIL_THICKNESS_FACTOR
 )
 
 # ================== COMBINED TRACKER ==================
@@ -25,12 +26,12 @@ class CombinedTracker:
 
     """Combined Ball and Field Tracker with Multithreading"""
     
-    def __init__(self, video_path, use_webcam=False):
+    def __init__(self, video_path=None):
         self.count = 0
+
         self.video_path = video_path
-        self.use_webcam = use_webcam
         
-        self.ball_tracker = BallDetector(video_path, use_webcam)
+        self.ball_tracker = BallDetector(video_path, USE_WEBCAM)
         self.field_detector = FieldDetector()
         self.goal_scorer = GoalScorer()
         
@@ -41,9 +42,8 @@ class CombinedTracker:
         # Calibration mode - only activate on key press
         self.calibration_mode = False
         self.calibration_requested = False
-        
-        video_source = 0 if use_webcam else video_path
-        self.stream = VideoStream(video_source)
+
+        self.stream = VideoStream(video_path)
         
         # Visualization modes
         self.BALL_ONLY = 1
@@ -58,7 +58,6 @@ class CombinedTracker:
         self.running = False
         self.frame_queue = LifoQueue(maxsize=1) 
         self.result_lock = Lock()
-
         
         self.current_frame = None
         self.ball_result = None
@@ -69,6 +68,9 @@ class CombinedTracker:
         self.processing_fps = 0
         self.last_fps_time = time.time()
         self.last_frame_count = 0
+
+        # Camera calibration
+        self.camera_calibration = Preprocessor(CAMERA_CALIBRATION_FILE)
         
     def frame_reader_thread_method(self):
         """Centralized frame reading thread"""
@@ -77,12 +79,18 @@ class CombinedTracker:
             t_start = time.perf_counter()
             ret, frame = self.stream.read()
             t_read = time.perf_counter()
+            
             if not ret or frame is None:
                 self.frame_queue.put(None)
                 break
-                
+
+            # Apply camera calibration (undistortion) using optimized Preprocessor
+            frame = self.camera_calibration.undistort_frame(frame)
+
+            # Resize frame to target size
             frame = cv2.resize(frame, (FRAME_WIDTH, FRAME_HEIGHT))
             t_resize = time.perf_counter()
+            
             with self.result_lock:
                 self.current_frame = frame.copy()
 
@@ -91,7 +99,7 @@ class CombinedTracker:
                 read_duration = (t_read - t_start) * 1000  # in ms
                 resize_duration = (t_resize - t_read) * 1000 # in ms
                 # Diese print-Anweisung ist für Debugging gedacht und sollte später entfernt werden.
-                print(f"Read: {read_duration:.2f} ms, Resize: {resize_duration:.2f} ms")
+                #print(f"\rTimestamp: {metadata.get('timestamp_ns', 'N/A')}", end="")
 
             # Versuche, den neuen Frame in die Queue zu legen.
             # Wenn die Queue voll ist (Analyse-Threads sind zu langsam),
@@ -198,7 +206,7 @@ class CombinedTracker:
 
         # Draw ball info
         if detection[0] is not None:
-            center, radius, confidence = detection
+            center, radius, confidence, velocity = detection
 
             # Color selection based on confidence
             if confidence >= 0.8:
@@ -215,14 +223,25 @@ class CombinedTracker:
                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
             cv2.putText(frame, f"Conf: {confidence:.2f}", (center[0] + 15, center[1] + 5), 
                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1)
+
+            # Show Kalman velocity
+            if velocity is not None:
+                cv2.arrowedLine(frame, center,
+                            (int(center[0] + velocity[0]*30), int(center[1] + velocity[1]*30)),
+                            (255, 0, 255), 2)
         
         # Ball trail drawing
+        
+        # if len(smoothed_pts) >= 64:
+        #     print(f"\rDrawing ball trail with {len(smoothed_pts)} points", end="")
+        #     cv2.line(frame, smoothed_pts[0], smoothed_pts[63], COLOR_BALL_TRAIL, 4)  # Dummy point for trail
+
         for i in range(1, len(smoothed_pts)):
             if smoothed_pts[i - 1] is None or smoothed_pts[i] is None:
                 continue
-            thickness = int(np.sqrt(64 / float(i + 1)) * 2.5)
+            thickness = int(np.sqrt(BALL_TRAIL_MAX_LENGTH / float(i + 1)) * BALL_TRAIL_THICKNESS_FACTOR)
             cv2.line(frame, smoothed_pts[i - 1], smoothed_pts[i], COLOR_BALL_TRAIL, thickness)
-        
+
         # Missing Counter
         cv2.putText(frame, f"Missing: {missing_counter}", (10, 120),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
@@ -292,13 +311,9 @@ class CombinedTracker:
         cv2.putText(frame, f"Processing: {self.processing_fps:.1f} FPS", 
                    (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
         
-        # Camera calibration status
-        if self.stream.is_calibrated():
-            cv2.putText(frame, "Camera: Undistorted", (10, 60),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-        else:
-            cv2.putText(frame, "Camera: Not Calibrated", (10, 60),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
+        # Camera calibration status - IDS Camera doesn't have built-in calibration
+        cv2.putText(frame, "Camera: IDS Live Stream", (10, 60),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
         
         # Show key commands
         cv2.putText(frame, "Keys: 1=Ball, 2=Field, 3=Both, r=Calibration, s=Screenshot, g=Reset Score, h=Help", 
@@ -337,11 +352,8 @@ class CombinedTracker:
         """Main loop for combined tracker"""
         print("=" * 60)
 
-        # Camera status display
-        if self.stream.is_calibrated():
-            print("✓ Camera calibration loaded - undistortion active")
-        else:
-            print("⚠ No camera calibration - undistortion disabled")
+        # Camera status display - IDS Camera doesn't have calibration info like VideoStream
+        print("✓ IDS Camera initialized - live capture active")
 
         print("=" * 60)
         print("Control commands:")
@@ -462,7 +474,6 @@ class CombinedTracker:
         finally:
             # Cleanup
             self.stop_threads()
-            self.stream.stop()
             cv2.destroyAllWindows()
             
             print(f"\nCombined Tracker finished.")
@@ -471,10 +482,8 @@ class CombinedTracker:
 # ================== MAIN PROGRAM ==================
 
 if __name__ == "__main__":
-    # Load configuration from config file
-    video_path = VIDEO_PATH
-    use_webcam = USE_WEBCAM
 
-    # Create and start combined tracker
-    tracker = CombinedTracker(video_path, use_webcam)
+    video_path = VIDEO_PATH
+
+    tracker = CombinedTracker(video_path=video_path)
     tracker.run()
