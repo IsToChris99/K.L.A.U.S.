@@ -1,5 +1,8 @@
 
-
+Legend:
+🔄 - Task is currently being worked on
+✅ - Task is completed
+⛔ - Task is blocked and cannot proceed
 This is a list of tasks that can be implemented.
 If you are currently working or planning on working on one of these, please enter your name in parentheses.
 
@@ -30,7 +33,8 @@ Camera
 ==============================================================================
 
 Camera readout:
-    -   Camera readout is too slow due to resize and camera calibration. (Tim)
+    -   Camera readout is too slow due to resize and camera calibration. (Tim) 🔄 (Undistortion is missing in gpu_preprocessor shader, wrong CPU undistortion due to resize)
+    -   Add config variables CAM_WIDTH, CAM_HEIGHT, CAM_X_OFFSET, CAM_Y_OFFSET to initialization of camera setttings in imput/ids_camera.py (Tim)
 
 Camera calibration:
     -   Perspective transformation

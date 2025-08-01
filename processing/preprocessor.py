@@ -18,6 +18,12 @@ class Preprocessor:
         
         self.load_calibration()
     
+    def initialize_for_size(self, target_size):
+        """Pre-initialize remap maps for a specific target size"""
+        if self.calibrated and target_size:
+            self._initialize_remap_maps(target_size)
+            print(f"Preprocessor initialized for size: {target_size}")
+    
     def load_calibration(self):
         """Loads calibration data from JSON file"""
         if not os.path.exists(self.calibration_file):

@@ -10,19 +10,12 @@ from detection.field_detector import FieldDetector
 from analysis.goal_scorer import GoalScorer
 from input.ids_camera import IDS_Camera
 from processing.preprocessor import Preprocessor
-from config import (
-    VIDEO_PATH, USE_WEBCAM, FRAME_WIDTH, FRAME_HEIGHT,
-    DISPLAY_FPS, DISPLAY_INTERVAL,
-    COLOR_BALL_HIGH_CONFIDENCE, COLOR_BALL_MED_CONFIDENCE, 
-    COLOR_BALL_LOW_CONFIDENCE, COLOR_BALL_TRAIL,
-    COLOR_FIELD_CONTOUR, COLOR_FIELD_CORNERS, COLOR_FIELD_BOUNDS, COLOR_GOALS, CAMERA_CALIBRATION_FILE, BALL_TRAIL_MAX_LENGTH, BALL_TRAIL_THICKNESS_FACTOR
-)
+from processing.gpu_preprocessor import GPUPreprocessor
+import config
 
 # ================== COMBINED TRACKER ==================
 
 class CombinedTracker:
-
-    
 
     """Combined Ball and Field Tracker with Multithreading"""
     
@@ -31,7 +24,8 @@ class CombinedTracker:
         # IDS Camera doesn't use video_path or use_webcam parameters
         # but we keep them for compatibility
         
-        self.ball_tracker = BallDetector(video_path, use_webcam)
+        
+        self.ball_tracker = BallDetector()
         self.field_detector = FieldDetector()
         self.goal_scorer = GoalScorer()
         
@@ -61,6 +55,7 @@ class CombinedTracker:
         self.result_lock = Lock()
         
         self.current_frame = None
+        self.current_bayer_frame = None  # Store raw Bayer frame from camera thread
         self.ball_result = None
         self.field_data = None
         
@@ -70,12 +65,21 @@ class CombinedTracker:
         self.last_fps_time = time.time()
         self.last_frame_count = 0
 
-        # Camera calibration
-        self.camera_calibration = Preprocessor(CAMERA_CALIBRATION_FILE)
+        # Camera calibration - make undistortion optional for performance
+        self.camera_calibration = Preprocessor(config.CAMERA_CALIBRATION_FILE)
+        self.gpu_preprocessor = GPUPreprocessor((1440, 1080), (config.DETECTION_WIDTH, config.DETECTION_HEIGHT))
+        # Pre-initialize for target resolution to avoid runtime overhead
+        self.camera_calibration.initialize_for_size((config.DETECTION_WIDTH, config.DETECTION_HEIGHT))
+
+        # Performance setting: disable undistortion if not critical
+        self.enable_undistortion = True  # Set to False to skip undistortion for max speed
+        
+        # Processing mode control
+        self.use_gpu_processing = True  # Start with GPU processing by default
         
     def frame_reader_thread_method(self):
-        """Centralized frame reading thread"""
-        
+        """Frame reading thread - only reads raw Bayer frames"""
+        read_duration = 0.0
         while self.running:
             t_start = time.perf_counter()
             
@@ -85,43 +89,20 @@ class CombinedTracker:
             
             if bayer_frame is None:
                 continue
-                
-            # Convert Bayer frame to RGB
-            frame = cv2.cvtColor(bayer_frame, cv2.COLOR_BAYER_RG2RGB)
 
-            # Apply camera calibration (undistortion) using optimized Preprocessor
-            frame = self.camera_calibration.undistort_frame(frame)
+            read_duration += (t_read - t_start)
 
-            # Resize frame to target size
-            frame = cv2.resize(frame, (FRAME_WIDTH, FRAME_HEIGHT))
-            t_resize = time.perf_counter()
-            
+            # Store raw Bayer frame (processing will happen in main thread)
             with self.result_lock:
-                self.current_frame = frame.copy()
+                self.current_bayer_frame = bayer_frame
 
             self.count += 1
-            if self.count % 250 == 0: # Alle 250 Frames
-                read_duration = (t_read - t_start) * 1000  # in ms
-                resize_duration = (t_resize - t_read) * 1000 # in ms
-                # Diese print-Anweisung ist für Debugging gedacht und sollte später entfernt werden.
-                #print(f"\rTimestamp: {metadata.get('timestamp_ns', 'N/A')}", end="")
+            if self.count % 250 == 0:  # Every 250 frames
+                read_duration_avg = (read_duration / self.count) * 1000000  # in µs
+                #print(f"\rRead: {read_duration_avg:.2f} µs", end="")
 
-            # Versuche, den neuen Frame in die Queue zu legen.
-            # Wenn die Queue voll ist (Analyse-Threads sind zu langsam),
-            # leere sie zuerst, um den alten Frame zu verwerfen und Platz für den neuen zu machen.
-            if self.frame_queue.full():
-                try:
-                    # Entferne den alten, nicht verarbeiteten Frame
-                    self.frame_queue.get_nowait()
-                except Empty:
-                    pass # Kann passieren, wenn ein anderer Thread ihn genau jetzt geholt hat
-            
-            # Lege den neusten Frame in die nun freie Queue
-            self.frame_queue.put(frame)
-
-        # Signal zum Beenden an die Worker senden
-        self.frame_queue.put(None)
-        self.frame_queue.put(None)
+            # Bayer frame is now stored and will be processed in main thread
+            # No queue operations needed here anymore
         
     def ball_tracking_thread(self):
         """Thread for Ball-Tracking"""
@@ -215,12 +196,12 @@ class CombinedTracker:
 
             # Color selection based on confidence
             if confidence >= 0.8:
-                color = COLOR_BALL_HIGH_CONFIDENCE  # Green
+                color = config.COLOR_BALL_HIGH_CONFIDENCE  # Green
             elif confidence >= 0.6:
-                color = COLOR_BALL_MED_CONFIDENCE   # Yellow
+                color = config.COLOR_BALL_MED_CONFIDENCE   # Yellow
             else:
-                color = COLOR_BALL_LOW_CONFIDENCE   # Orange
-                
+                color = config.COLOR_BALL_LOW_CONFIDENCE   # Orange
+
             cv2.circle(frame, center, 3, color, -1)
             cv2.circle(frame, center, int(radius), color, 2)
             
@@ -244,8 +225,8 @@ class CombinedTracker:
         for i in range(1, len(smoothed_pts)):
             if smoothed_pts[i - 1] is None or smoothed_pts[i] is None:
                 continue
-            thickness = int(np.sqrt(BALL_TRAIL_MAX_LENGTH / float(i + 1)) * BALL_TRAIL_THICKNESS_FACTOR)
-            cv2.line(frame, smoothed_pts[i - 1], smoothed_pts[i], COLOR_BALL_TRAIL, thickness)
+            thickness = int(np.sqrt(config.BALL_TRAIL_MAX_LENGTH / float(i + 1)) * config.BALL_TRAIL_THICKNESS_FACTOR)
+            cv2.line(frame, smoothed_pts[i - 1], smoothed_pts[i], config.COLOR_BALL_TRAIL, thickness)
 
         # Missing Counter
         cv2.putText(frame, f"Missing: {missing_counter}", (10, 120),
@@ -261,30 +242,30 @@ class CombinedTracker:
 
         # Field contour
         if field_data_copy['calibrated'] and field_data_copy['field_contour'] is not None:
-            cv2.drawContours(frame, [field_data_copy['field_contour']], -1, COLOR_FIELD_CONTOUR, 3)
+            cv2.drawContours(frame, [field_data_copy['field_contour']], -1, config.COLOR_FIELD_CONTOUR, 3)
 
         # Field corners
         if field_data_copy['field_corners'] is not None:
             for i, corner in enumerate(field_data_copy['field_corners']):
-                cv2.circle(frame, tuple(corner), 8, COLOR_FIELD_CORNERS, -1)
+                cv2.circle(frame, tuple(corner), 8, config.COLOR_FIELD_CORNERS, -1)
                 cv2.putText(frame, f"{i+1}", (corner[0]+10, corner[1]-10),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, COLOR_FIELD_CORNERS, 2)
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, config.COLOR_FIELD_CORNERS, 2)
 
         # Goals
         for i, goal in enumerate(field_data_copy['goals']):
             x, y, w, h = goal['bounds']
-            cv2.rectangle(frame, (x, y), (x+w, y+h), COLOR_GOALS, 2)
+            cv2.rectangle(frame, (x, y), (x+w, y+h), config.COLOR_GOALS, 2)
             cv2.putText(frame, f"Goal {i+1} ({goal['type']})", (x, y-10),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, COLOR_GOALS, 2)
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, config.COLOR_GOALS, 2)
 
         # Field limits - Uses minAreaRect
         if (field_data_copy['calibrated'] and 
             field_data_copy.get('field_rect_points') is not None):
-            cv2.drawContours(frame, [field_data_copy['field_rect_points']], -1, COLOR_FIELD_BOUNDS, 2)
+            cv2.drawContours(frame, [field_data_copy['field_rect_points']], -1, config.COLOR_FIELD_BOUNDS, 2)
         elif field_data_copy['calibrated'] and field_data_copy['field_bounds']:
             # Fallback: normal bounding box rectangle
             x, y, w, h = field_data_copy['field_bounds']
-            cv2.rectangle(frame, (x, y), (x+w, y+h), COLOR_FIELD_BOUNDS, 2)
+            cv2.rectangle(frame, (x, y), (x+w, y+h), config.COLOR_FIELD_BOUNDS, 2)
 
         # Calibration info
         if (field_data_copy['calibration_requested'] and 
@@ -309,19 +290,25 @@ class CombinedTracker:
             self.COMBINED: "Combined Tracking"
         }
         
-        cv2.putText(frame, f"Mode: {mode_text[self.visualization_mode]}", (10, 30),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
-        
-        # FPS display
-        cv2.putText(frame, f"Processing: {self.processing_fps:.1f} FPS", 
-                   (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+        cv2.putText(frame, f"Mode: {mode_text[self.visualization_mode]}", (10, 20),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 2)
         
         # Camera calibration status - IDS Camera doesn't have built-in calibration
-        cv2.putText(frame, "Camera: IDS Live Stream", (10, 60),
+        cv2.putText(frame, "Camera: IDS Live Stream", (10, 40),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
         
+        # Processing mode display
+        mode_text = "GPU" if self.use_gpu_processing else "CPU"
+        mode_color = (0, 255, 0) if self.use_gpu_processing else (255, 255, 0)
+        cv2.putText(frame, f"Preprocessing: {mode_text}", (10, 60),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, mode_color, 2)
+
+        # FPS display
+        cv2.putText(frame, f"Processing: {self.processing_fps:.1f} FPS", 
+                   (10, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+        
         # Show key commands
-        cv2.putText(frame, "Keys: 1=Ball, 2=Field, 3=Both, r=Calibration, s=Screenshot, g=Reset Score, h=Help", 
+        cv2.putText(frame, "Keys: 1=Ball, 2=Field, 3=Both, r=Calibration, s=Screenshot, g=Reset Score, x=Reload GPU, c=Toggle CPU/GPU, h=Help", 
                    (10, frame.shape[0] - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1)
     
     def start_threads(self):
@@ -344,6 +331,13 @@ class CombinedTracker:
         """Stops the tracking threads"""
         self.running = False
         
+        # Send termination signals to worker threads
+        try:
+            self.frame_queue.put(None)
+            self.frame_queue.put(None)
+        except:
+            pass  # Queue might be full or closed
+        
         if self.frame_reader_thread and self.frame_reader_thread.is_alive():
             self.frame_reader_thread.join(timeout=1.0)
         
@@ -353,6 +347,52 @@ class CombinedTracker:
         if self.field_thread and self.field_thread.is_alive():
             self.field_thread.join(timeout=1.0)
     
+    def toggle_processing_mode(self):
+        """Toggles between CPU and GPU processing"""
+        self.use_gpu_processing = not self.use_gpu_processing
+        mode_text = "GPU" if self.use_gpu_processing else "CPU"
+        print(f"\nSwitched to {mode_text} processing")
+        
+        # Reinitialize GPU if switching back to GPU mode
+        if self.use_gpu_processing:
+            try:
+                self.gpu_preprocessor.force_reinitialize()
+                print("GPU preprocessor reinitialized")
+            except Exception as e:
+                print(f"Failed to reinitialize GPU, falling back to CPU: {e}")
+                self.use_gpu_processing = False
+    
+    def _process_frame_cpu(self, bayer_frame):
+        """Processes a Bayer frame using CPU preprocessing"""
+        # Convert Bayer to RGB
+        color_frame = cv2.cvtColor(bayer_frame, cv2.COLOR_BAYER_RG2RGB)
+        
+        # Resize to target resolution
+        resized_frame = cv2.resize(color_frame, (config.DETECTION_WIDTH, config.DETECTION_HEIGHT),)
+        
+        # Apply camera calibration undistortion if enabled
+        if self.enable_undistortion and self.camera_calibration.calibrated:
+            resized_frame = self.camera_calibration.undistort_frame(resized_frame)
+        
+        return resized_frame
+    
+
+    def _show_help(self):
+        """Displays help information"""
+        print("\n" + "=" * 60)
+        print("KEY COMMANDS:")
+        print("  'q' - Quit")
+        print("  '1' - Show ball tracking only")
+        print("  '2' - Show field tracking only")
+        print("  '3' - Show combined view")
+        print("  'r' - Start/recalibrate field calibration")
+        print("  's' - Save screenshot (with ball curve if available)")
+        print("  'g' - Reset score to 0-0")
+        print("  'x' - Force GPU shader reload")
+        print("  'c' - Toggle CPU/GPU processing")
+        print("  'h' - Show help")
+        print("=" * 60)
+
     def run(self):
         """Main loop for combined tracker"""
         print("=" * 60)
@@ -360,29 +400,72 @@ class CombinedTracker:
         # Camera status display - IDS Camera doesn't have calibration info like VideoStream
         print("✓ IDS Camera initialized - live capture active")
 
-        print("=" * 60)
-        print("Control commands:")
-        print("  'q' - Quit")
-        print("  '1' - Show only ball tracking")
-        print("  '2' - Show only field tracking")
-        print("  '3' - Combined view (default)")
-        print("  'r' - Start/recalibrate field calibration")
-        print("  's' - Save screenshot (with ball curve if available)")
-        print("  'c' - Show camera calibration info")
-        print("  'h' - Show help")
-        print("=" * 60)
+        self._show_help()
         
         # Start IDS camera acquisition
         self.camera.start()
         self.start_threads()
         
         try:
+            # Enhanced preprocessing time measurement
+            from collections import deque
+            processing_times = deque(maxlen=100)  # Keep last 100 measurements
+            count = 0
+            last_stats_time = time.time()
+            
             while True:
-                # Get current frame for processing from centralized reader
+                # Get current Bayer frame and process it on GPU in main thread
                 with self.result_lock:
-                    if self.current_frame is None:
+                    if self.current_bayer_frame is None:
                         continue
-                    frame = self.current_frame.copy()
+                    bayer_frame = self.current_bayer_frame.copy()
+                
+                count += 1
+                t_start = time.perf_counter()
+                
+                # Process frame based on selected mode
+                if self.use_gpu_processing:
+                    try:
+                        frame = self.gpu_preprocessor.process_frame(bayer_frame)
+                    except Exception as e:
+                        print(f"\nGPU processing failed, falling back to CPU: {e}")
+                        self.use_gpu_processing = False
+                        frame = self._process_frame_cpu(bayer_frame)
+                else:
+                    frame = self._process_frame_cpu(bayer_frame)
+                
+                t_process = time.perf_counter()
+                delta_t_sec = t_process - t_start
+                
+                # Add current measurement to rolling window
+                processing_times.append(delta_t_sec * 1000)  # Convert to ms
+                
+                # Display detailed statistics every second
+                current_time = time.time()
+                if current_time - last_stats_time >= 1.0:
+                    if processing_times:
+                        avg_time_ms = sum(processing_times) / len(processing_times)
+                        min_time_ms = min(processing_times)
+                        max_time_ms = max(processing_times)
+                        # Calculate theoretical max FPS based on preprocessing time
+                        theoretical_fps = 1000.0 / avg_time_ms if avg_time_ms > 0 else 0
+                        print(f"\rPreprocessing: {avg_time_ms:.2f}ms avg (min: {min_time_ms:.2f}, max: {max_time_ms:.2f}) | Theoretical FPS: {theoretical_fps:.1f} | Samples: {len(processing_times)}", end="")
+                    last_stats_time = current_time
+
+                # Store processed frame for display
+                with self.result_lock:
+                    self.current_frame = frame
+                
+                # Put processed frame into queue for analysis threads
+                if not self.frame_queue.full():
+                    self.frame_queue.put(frame)
+                else:
+                    # Remove old frame and add new one
+                    try:
+                        self.frame_queue.get_nowait()
+                    except Empty:
+                        pass
+                    self.frame_queue.put(frame)
                 
                 self.frame_count += 1
                 current_time = time.time()
@@ -458,23 +541,19 @@ class CombinedTracker:
                     cv2.imwrite(f"combined_screenshot_{timestamp}.jpg", screenshot_frame)
                     print(f"Screenshot saved: combined_screenshot_{timestamp}.jpg")
                 elif key == ord('h'):
-                    print("\n" + "=" * 60)
-                    print("KEY COMMANDS:")
-                    print("  'q' - Quit")
-                    print("  '1' - Show ball tracking only")
-                    print("  '2' - Show field tracking only")
-                    print("  '3' - Show combined view")
-                    print("  'r' - Start/recalibrate field calibration")
-                    print("  's' - Save screenshot (with ball curve if available)")
-                    print("  'c' - Show camera calibration info")
-                    print("  'g' - Reset score to 0-0")
-                    print("  'h' - Show help")
-                    print("=" * 60)
+                    self._show_help()
 
                 elif key == ord('g'):
                     # Reset score
                     self.goal_scorer.reset_score()
                     print("Score reset!")
+
+                elif key == ord('x'):
+                    print("Forcing GPU preprocessor reinitialization...")
+                    self.gpu_preprocessor.force_reinitialize()
+                
+                elif key == ord('c'):
+                    self.toggle_processing_mode()
 
                 #print(f"\r{(time.time() - measure_time) * 1000000}", end="")
 
