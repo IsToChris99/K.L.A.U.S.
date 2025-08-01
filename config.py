@@ -17,24 +17,24 @@ AREA_RATIO = WIDTH_RATIO * HEIGHT_RATIO
 
 # ================== CALIBRATION FILES ==================
 CAMERA_CALIBRATION_FILE = "Z_Archive\\Cam_Lens_Calibration\\calibration_data.json"
-FIELD_CALIBRATION_FILE = "field_calibration.json"
+FIELD_CALIBRATION_FILE = "detection\\field_calibration.json"
 
 # ================== BALL DETECTION (HSV VALUES) ==================
 # # Orange ball - main color
-# BALL_ORANGE_LOWER = (0, 120, 200)
-# BALL_ORANGE_UPPER = (30, 255, 255)
+# BALL_LOWER = (0, 120, 200)
+# BALL_UPPER = (30, 255, 255)
 
 # # Orange ball - alternative values
-# BALL_ORANGE_LOWER_ALT = (10, 120, 200)
-# BALL_ORANGE_UPPER_ALT = (40, 255, 255)
+# BALL_OWER_ALT = (10, 120, 200)
+# BALL_UPPER_ALT = (40, 255, 255)
 
 # Yellow ball - main color
-BALL_ORANGE_LOWER = (20, 50, 10)
-BALL_ORANGE_UPPER = (40, 255, 255)
+BALL_LOWER = (20, 50, 10)
+BALL_UPPER = (40, 255, 255)
 
-# Orange ball - alternative values
-BALL_ORANGE_LOWER_ALT = (20, 120, 200)
-BALL_ORANGE_UPPER_ALT = (40, 255, 255)
+# Yellow ball - alternative values
+BALL_LOWER_ALT = (20, 120, 200)
+BALL_UPPER_ALT = (40, 255, 255)
 
 # ================== FIELD DETECTION (HSV VALUES) ==================
 # Green field - main color

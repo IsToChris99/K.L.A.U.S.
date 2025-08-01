@@ -2,13 +2,11 @@ import cv2
 import numpy as np
 from collections import deque
 from config import (
-    BALL_ORANGE_LOWER, BALL_ORANGE_UPPER, 
-    BALL_ORANGE_LOWER_ALT, BALL_ORANGE_UPPER_ALT,
+    BALL_LOWER, BALL_UPPER, 
+    BALL_LOWER_ALT, BALL_UPPER_ALT,
     BALL_SMOOTHER_WINDOW_SIZE, BALL_MAX_MISSING_FRAMES,
     BALL_CONFIDENCE_THRESHOLD, BALL_TRAIL_MAX_LENGTH,
-    DISPLAY_FPS, COLOR_BALL_HIGH_CONFIDENCE, 
-    COLOR_BALL_MED_CONFIDENCE, COLOR_BALL_LOW_CONFIDENCE,
-    COLOR_BALL_TRAIL, BALL_TRAIL_THICKNESS_FACTOR, WIDTH_RATIO, HEIGHT_RATIO, AREA_RATIO
+    DISPLAY_FPS, WIDTH_RATIO, AREA_RATIO
 )
 
 class BallDetector:
@@ -18,10 +16,10 @@ class BallDetector:
         self.video_path = video_path
         self.use_webcam = use_webcam
 
-        self.orange_lower = BALL_ORANGE_LOWER
-        self.orange_upper = BALL_ORANGE_UPPER
-        self.orange_lower_alt = BALL_ORANGE_LOWER_ALT
-        self.orange_upper_alt = BALL_ORANGE_UPPER_ALT
+        self.lower = BALL_LOWER
+        self.upper = BALL_UPPER
+        self.lower_alt = BALL_LOWER_ALT
+        self.upper_alt = BALL_UPPER_ALT
 
         self.display_interval = 1.0 / DISPLAY_FPS
 
@@ -43,9 +41,9 @@ class BallDetector:
     def detect_ball(self, frame, field_bounds=None):
         """Ball detection with multi-criteria evaluation"""
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-        
-        mask1 = cv2.inRange(hsv, self.orange_lower, self.orange_upper)
-        mask2 = cv2.inRange(hsv, self.orange_lower_alt, self.orange_upper_alt)
+
+        mask1 = cv2.inRange(hsv, self.lower, self.upper)
+        mask2 = cv2.inRange(hsv, self.lower_alt, self.upper_alt)
         mask = cv2.bitwise_or(mask1, mask2)
         
         # When field bounds are provided, apply a mask
@@ -151,10 +149,10 @@ class BallDetector:
                    max(0, int(x-radius)):min(frame.shape[1], int(x+radius))]
         if roi.size > 0:
             hsv_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
-            orange_pixels = cv2.inRange(hsv_roi, self.orange_lower, self.orange_upper)
-            orange_ratio = np.sum(orange_pixels > 0) / orange_pixels.size
-            score += 10 * orange_ratio
-            
+            color_pixels = cv2.inRange(hsv_roi, self.lower, self.upper)
+            color_ratio = np.sum(color_pixels > 0) / color_pixels.size
+            score += 10 * color_ratio
+
         return score, center, radius
 
     def _constrain_to_field(self, position, field_bounds):
