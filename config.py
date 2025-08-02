@@ -3,6 +3,7 @@
 # ================== VIDEO & CAMERA SETTINGS ==================
 # VIDEO_PATH = "C:\\Users\\Tim\\OneDrive - TH Köln\\03_Hochschule\\6_Semester\\Kicker_Projekt\\08.avi"
 VIDEO_PATH = "C:\\Users\\joshu\\OneDrive - TH Köln\\Python Workspace\\Tischkicker\\0_Material\\2025-07-03_Testvideos_250fps\\07.avi"
+IS_LIVE = False
 
 CAM_WIDTH = 1440
 CAM_HEIGHT = 1080
