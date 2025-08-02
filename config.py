@@ -38,7 +38,7 @@ BALL_UPPER = (40, 255, 255)
 BALL_LOWER_ALT = (20, 120, 200)
 BALL_UPPER_ALT = (40, 255, 255)
 
-        # Farbeinstellungen HSV (orange)
+# Farbeinstellungen HSV (orange)
 # BALL_LOWER = (0, 120, 200)
 # BALL_UPPER = (30, 255, 255)
 
