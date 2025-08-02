@@ -2,11 +2,16 @@ import cv2
 import numpy as np
 import json
 import os
+import config
 
 
-class Preprocessor:
+class CPUPreprocessor:
     """Class for camera calibration and undistortion"""
-    def __init__(self, calibration_file="calibration_data.json"):
+    def __init__(self, bayer_size = (config.CAM_WIDTH, config.CAM_HEIGHT), target_size=(config.DETECTION_WIDTH, config.DETECTION_HEIGHT), calibration_file=config.CAMERA_CALIBRATION_FILE):
+        self.bayer_width = bayer_size[0]
+        self.bayer_height = bayer_size[1]
+        self.target_width = target_size[0]
+        self.target_height = target_size[1]
         self.calibration_file = calibration_file
         self.camera_matrix = None
         self.dist_coeffs = None
@@ -93,3 +98,13 @@ class Preprocessor:
             'image_size': self.image_size,
             'optimization_active': self.map1 is not None
         }
+    
+    def process_frame(self, bayer_frame):
+        """Processes a single Bayer frame through the entire pipeline.
+        Returns the undistorted RGB frame in resized and original resolution."""
+        rgb_frame = cv2.cvtColor(bayer_frame, cv2.COLOR_BayerRG2RGB)
+        # Apply undistortion
+        undist_frame = self.undistort_frame(rgb_frame)
+        # Resize to target size
+        resized_frame = cv2.resize(undist_frame, (self.target_width, self.target_height))
+        return resized_frame, undist_frame
