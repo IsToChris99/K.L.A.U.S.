@@ -131,8 +131,16 @@ class GPUPreprocessor:
             uniform sampler2D bayerTexture;
             uniform vec2 bayerSize;
             uniform vec2 targetSize;
+            uniform mat3 cameraMatrix;
+            uniform vec4 distCoeffs; // k1, k2, p1, p2
 
             vec3 demosaicPixel(vec2 bayerTexCoord) {
+                // Boundary check
+                if (bayerTexCoord.x < 0.0 || bayerTexCoord.x > 1.0 ||
+                    bayerTexCoord.y < 0.0 || bayerTexCoord.y > 1.0) {
+                    return vec3(0.0, 0.0, 0.0); // Return black for out-of-bounds
+                }
+                
                 // Get Bayer texture dimensions for pixel coordinate calculations
                 vec2 pixelCoord = bayerTexCoord * bayerSize;
                 
@@ -220,28 +228,59 @@ class GPUPreprocessor:
                 return rgb;
             }
 
-            vec3 demosaic_and_resize(vec2 targetTexCoord) {
-                // Calculate the corresponding pixel coordinate in the source bayer texture
-                vec2 srcPixelCoord = targetTexCoord * bayerSize - 0.5;
-                vec2 floorPixelCoord = floor(srcPixelCoord);
-                vec2 fractPixelCoord = fract(srcPixelCoord);
+            vec2 undistortCoordinate(vec2 targetPixelCoord) {
+                // Convert target pixel coordinates to normalized camera coordinates
+                float x = (targetPixelCoord.x - cameraMatrix[0][2]) / cameraMatrix[0][0];
+                float y = (targetPixelCoord.y - cameraMatrix[1][2]) / cameraMatrix[1][1];
 
-                // Demosaic the four surrounding bayer pixels to get their full RGB values
-                vec3 c00 = demosaicPixel((floorPixelCoord + vec2(0.5, 0.5)) / bayerSize);
-                vec3 c01 = demosaicPixel((floorPixelCoord + vec2(1.5, 0.5)) / bayerSize);
-                vec3 c10 = demosaicPixel((floorPixelCoord + vec2(0.5, 1.5)) / bayerSize);
-                vec3 c11 = demosaicPixel((floorPixelCoord + vec2(1.5, 1.5)) / bayerSize);
+                // Apply inverse distortion (find distorted coordinates from undistorted)
+                float r2 = x*x + y*y;
+                float r4 = r2*r2;
+                
+                // Radial distortion
+                float distortion = 1.0 + distCoeffs.x * r2 + distCoeffs.y * r4;
+                
+                // Tangential distortion
+                float dx = 2.0*distCoeffs.z*x*y + distCoeffs.w*(r2+2.0*x*x);
+                float dy = distCoeffs.z*(r2+2.0*y*y) + 2.0*distCoeffs.w*x*y;
+                
+                // Apply distortion
+                float x_dist = x * distortion + dx;
+                float y_dist = y * distortion + dy;
+                
+                // Project back to distorted pixel coordinates in bayer image
+                vec2 distorted_pixel = vec2(
+                    cameraMatrix[0][0] * x_dist + cameraMatrix[0][2],
+                    cameraMatrix[1][1] * y_dist + cameraMatrix[1][2]
+                );
 
-                // Bilinearly interpolate between the four RGB colors
-                vec3 top = mix(c00, c01, fractPixelCoord.x);
-                vec3 bottom = mix(c10, c11, fractPixelCoord.x);
-                return mix(top, bottom, fractPixelCoord.y);
+                // Convert to texture coordinates (normalized [0,1])
+                return distorted_pixel / bayerSize;
+            }
+
+            vec3 demosaic_undistort_and_resize(vec2 targetTexCoord) {
+                // Convert target texture coordinates to pixel coordinates
+                vec2 targetPixelCoord = targetTexCoord * targetSize;
+                
+                // Scale to bayer image size (this is the undistorted coordinate we want)
+                vec2 scaledPixelCoord = targetPixelCoord * (bayerSize / targetSize);
+                
+                // Find corresponding distorted coordinate in source bayer image
+                vec2 distortedTexCoord = undistortCoordinate(scaledPixelCoord);
+                
+                // Check bounds
+                if (distortedTexCoord.x < 0.0 || distortedTexCoord.x > 1.0 ||
+                    distortedTexCoord.y < 0.0 || distortedTexCoord.y > 1.0) {
+                    return vec3(0.0, 0.0, 0.0); // Black for out of bounds
+                }
+                
+                // Demosaic at the distorted coordinate
+                return demosaicPixel(distortedTexCoord);
             }
 
             void main() {
-                // The framebuffer is already set to target size, so TexCoords map directly.
-                // Call the combined demosaic and resize function.
-                vec3 rgb = demosaic_and_resize(TexCoords);
+                // Perform combined demosaicing, undistortion, and resizing
+                vec3 rgb = demosaic_undistort_and_resize(TexCoords);
                 FragColor = vec4(rgb, 1.0);
             }
         """
@@ -393,18 +432,36 @@ class GPUPreprocessor:
             glBindFramebuffer(GL_FRAMEBUFFER, self.fbo)
             self.shader_program.use()
             
-            # Set uniform variables for sizes
+            # Set uniform variables for sizes and calibration
             try:
                 # Get the actual OpenGL program ID from pyglet shader program
                 program_id = self.shader_program.id if hasattr(self.shader_program, 'id') else self.shader_program._program_id
                 
                 bayer_size_location = glGetUniformLocation(program_id, b"bayerSize")
                 target_size_location = glGetUniformLocation(program_id, b"targetSize")
+                camera_matrix_location = glGetUniformLocation(program_id, b"cameraMatrix")
+                dist_coeffs_location = glGetUniformLocation(program_id, b"distCoeffs")
                 
                 if bayer_size_location != -1:
                     glUniform2f(bayer_size_location, float(self.bayer_width), float(self.bayer_height))
                 if target_size_location != -1:
                     glUniform2f(target_size_location, float(self.target_width), float(self.target_height))
+                
+                # Send camera matrix as mat3
+                if camera_matrix_location != -1:
+                    camera_matrix_flat = self.camera_matrix.flatten().astype(np.float32)
+                    # Create proper ctypes pointer for the matrix data
+                    matrix_ptr = (GLfloat * len(camera_matrix_flat))(*camera_matrix_flat)
+                    glUniformMatrix3fv(camera_matrix_location, 1, GL_FALSE, matrix_ptr)
+                
+                # Send distortion coefficients as vec4 (k1, k2, p1, p2)
+                if dist_coeffs_location != -1:
+                    dist_coeffs_vec4 = np.zeros(4, dtype=np.float32)
+                    dist_coeffs_vec4[:min(4, len(self.dist_coeffs))] = self.dist_coeffs[:4]
+                    # Create proper ctypes pointer for the distortion coefficients
+                    dist_ptr = (GLfloat * 4)(*dist_coeffs_vec4)
+                    glUniform4fv(dist_coeffs_location, 1, dist_ptr)
+                    
             except Exception as e:
                 print(f"Warning: Could not set uniform variables: {e}")
             

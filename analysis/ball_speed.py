@@ -12,7 +12,7 @@ class BallSpeed:
         self.pixel_to_meter_ratio = pixel_to_meter_ratio
         self.last_position: tuple[float, float] | None = None
         self.last_speed: float = 0.0
-        self.last_timestamp
+        self.last_timestamp = 0.0
 
 
 
@@ -38,7 +38,10 @@ class BallSpeed:
         dx = x2 - x1
         dy = y2 - y1
         distance_px = np.sqrt(dx ** 2 + dy ** 2)
-
+        
+        if self.dt <= 0:
+            return 0.0
+        
         speed_px_per_sec = distance_px / self.dt
 
         if self.pixel_to_meter_ratio is not None:

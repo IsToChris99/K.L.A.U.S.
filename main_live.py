@@ -94,8 +94,8 @@ class CombinedTracker:
             # Get frame from IDS camera
             bayer_frame, metadata = self.camera.get_frame()
             t_read = time.perf_counter()
-            if metadata is not None:
-                print(f"\rOffsets: {metadata.get('offset_x', 0)}, {metadata.get('offset_y', 0)}", end="")
+            # if metadata is not None:
+            #     print(f"\rOffsets: {metadata.get('offset_x', 0)}, {metadata.get('offset_y', 0)}", end="")
             if bayer_frame is None:
                 continue
 
@@ -137,7 +137,7 @@ class CombinedTracker:
             detection_result = self.ball_tracker.detect_ball(frame, field_bounds)
             self.ball_tracker.update_tracking(detection_result, field_bounds)
             self.velocity = self.ball_speed.update(detection_result[0], self.timestamp_ns)
-            print(f"\rBall Velocity: {self.velocity:.2f} m/s", end="")
+            print(f"\rBall Velocity: {self.velocity:.2f} cm/s", end="")
 
             # Goal scoring system update
             ball_position = detection_result[0] if detection_result[0] is not None else None
@@ -448,7 +448,7 @@ class CombinedTracker:
                         max_time_ms = max(processing_times)
                         # Calculate theoretical max FPS based on preprocessing time
                         theoretical_fps = 1000.0 / avg_time_ms if avg_time_ms > 0 else 0
-                        print(f"\rPreprocessing: {avg_time_ms:.2f}ms avg (min: {min_time_ms:.2f}, max: {max_time_ms:.2f}) | Theoretical FPS: {theoretical_fps:.1f} | Samples: {len(processing_times)}", end="")
+                        #print(f"\rPreprocessing: {avg_time_ms:.2f}ms avg (min: {min_time_ms:.2f}, max: {max_time_ms:.2f}) | Theoretical FPS: {theoretical_fps:.1f} | Samples: {len(processing_times)}", end="")
                     last_stats_time = current_time
 
                 # Store processed frame for display
