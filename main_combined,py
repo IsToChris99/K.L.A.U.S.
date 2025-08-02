@@ -88,7 +88,7 @@ class CombinedTracker:
         self.timestamp_ns = 0
         self.velocity = 0.0
         self.pixel_to_meter_ratio = 0
-        self.ball_speed = BallSpeed(self.pixel_to_meter_ratio)
+        self.ball_speed = BallSpeed()
         
     def frame_reader_thread_method(self):
         """Frame reading thread - only reads raw Bayer frames"""
