@@ -54,4 +54,5 @@ Ballcurve:
     -   (Show ballcurve on an ideal model of the field)
 
 User Interface:
-    -   
+    -   Calibration UI with Color Picker Tool for selecting colors in live frame
+    -   Live UI for Play Mode
