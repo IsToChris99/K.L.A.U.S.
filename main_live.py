@@ -82,8 +82,8 @@ class CombinedTracker:
         # Ball speed calculator
         self.timestamp_ns = 0
         self.velocity = 0.0
-        self.pixel_to_meter_ratio = 0
-        self.ball_speed = BallSpeed(self.pixel_to_meter_ratio)
+        self.px_to_cm_ratio = 0
+        self.ball_speed = BallSpeed()
         
     def frame_reader_thread_method(self):
         """Frame reading thread - only reads raw Bayer frames"""
@@ -115,7 +115,10 @@ class CombinedTracker:
         
     def ball_tracking_thread(self):
         """Thread for Ball-Tracking"""
+
+        count = 0
         while self.running:
+            count += 1
             try:
                 frame = self.frame_queue.get(timeout=1.0)
                 if frame is None:
@@ -136,8 +139,11 @@ class CombinedTracker:
             # Ball detection with field_bounds
             detection_result = self.ball_tracker.detect_ball(frame, field_bounds)
             self.ball_tracker.update_tracking(detection_result, field_bounds)
-            self.velocity = self.ball_speed.update(detection_result[0], self.timestamp_ns)
-            print(f"\rBall Velocity: {self.velocity:.2f} cm/s", end="")
+
+
+            if count % 8 == 0:  # Every 10 frames
+                self.velocity = self.ball_speed.update(detection_result[0], self.timestamp_ns if self.timestamp_ns > 0 else time.perf_counter_ns(), self.px_to_cm_ratio)
+            #print(f"\rBall Velocity: {self.velocity:.2f} cm/s", end="")
 
             # Goal scoring system update
             ball_position = detection_result[0] if detection_result[0] is not None else None
@@ -186,10 +192,14 @@ class CombinedTracker:
                     'calibration_requested': self.calibration_requested
                 }
 
-            
-            self.field_width = self.field_data['field_corners'][1][0] - self.field_data['field_corners'][0][0] if self.field_data['field_corners'] else 0
-            self.field_height = self.field_data['field_corners'][1][1] - self.field_data['field_corners'][0][1] if self.field_data['field_corners'] else 0
-            self.pixel_to_meter_ratio = self.field_width / 118 if self.field_width > 0 else 0
+
+            self.field_width = (self.field_data['field_corners'][1][0] - self.field_data['field_corners'][0][0] 
+                                if self.field_data['field_corners'] is not None and len(self.field_data['field_corners']) >= 2 
+                                and self.field_data['field_corners'][0] is not None 
+                                and self.field_data['field_corners'][1] is not None 
+                                else 0)
+            self.px_to_cm_ratio = self.field_width / 118 if self.field_width != 0 else 0
+            # print(f"Field Width: {self.field_width} px, Pixel to Meter Ratio: {self.px_to_cm_ratio:.4f}")
 
     def draw_ball_visualization(self, frame):
         """Draws ball visualization"""

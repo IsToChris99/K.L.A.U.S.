@@ -1,7 +1,7 @@
 import numpy as np
 
 class BallSpeed:
-    def __init__(self, pixel_to_meter_ratio: float | None = None) -> None:
+    def __init__(self) -> None:
         """
         Initialize the BallSpeed calculator.
 
@@ -9,14 +9,13 @@ class BallSpeed:
             fps (float): Camera frame rate (250).
             pixel_to_meter_ratio (float | None): Conversion factor from pixels to meters (optional).
         """
-        self.pixel_to_meter_ratio = pixel_to_meter_ratio
         self.last_position: tuple[float, float] | None = None
         self.last_speed: float = 0.0
         self.last_timestamp = 0.0
 
 
 
-    def update(self, current_position: tuple[float, float] | None, current_timestamp) -> float:
+    def update(self, current_position: tuple[float, float] | None, current_timestamp, px_to_cm_ratio: float | None = None) -> float:
         """
         Calculate the speed based on the current and last position.
 
@@ -44,15 +43,15 @@ class BallSpeed:
         
         speed_px_per_sec = distance_px / self.dt
 
-        if self.pixel_to_meter_ratio is not None:
-            speed = speed_px_per_sec * self.pixel_to_meter_ratio
+        if px_to_cm_ratio is not None:
+            speed = speed_px_per_sec * px_to_cm_ratio
         else:
             speed = speed_px_per_sec
 
         self.last_position = current_position
         self.last_speed = speed
+        print(f"\rLast Position: {self.last_position}, Current Position: {current_position}, Speed: {(speed * 10**9):.2f} m/s", end="")
         return speed
-
     def reset(self) -> None:
         """
         Reset the internal state (e.g., when the ball is lost).
