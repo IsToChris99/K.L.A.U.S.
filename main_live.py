@@ -11,6 +11,7 @@ from analysis.goal_scorer import GoalScorer
 from input.ids_camera import IDS_Camera
 from processing.cpu_preprocessor import CPUPreprocessor
 from processing.gpu_preprocessor import GPUPreprocessor
+from analysis.ball_speed import BallSpeed
 import config
 
 # ================== COMBINED TRACKER ==================
@@ -78,6 +79,12 @@ class CombinedTracker:
         # Processing mode control
         self.use_gpu_processing = True  # Start with GPU processing by default
         
+        # Ball speed calculator
+        self.timestamp_ns = 0
+        self.velocity = 0.0
+        self.pixel_to_meter_ratio = 0
+        self.ball_speed = BallSpeed(self.pixel_to_meter_ratio)
+        
     def frame_reader_thread_method(self):
         """Frame reading thread - only reads raw Bayer frames"""
         read_duration = 0.0
@@ -129,7 +136,9 @@ class CombinedTracker:
             # Ball detection with field_bounds
             detection_result = self.ball_tracker.detect_ball(frame, field_bounds)
             self.ball_tracker.update_tracking(detection_result, field_bounds)
-            
+            self.velocity = self.ball_speed.update(detection_result[0], self.timestamp_ns)
+            print(f"\rBall Velocity: {self.velocity:.2f} m/s", end="")
+
             # Goal scoring system update
             ball_position = detection_result[0] if detection_result[0] is not None else None
             self.goal_scorer.update_ball_tracking(
@@ -176,8 +185,12 @@ class CombinedTracker:
                     'calibration_mode': self.calibration_mode,
                     'calibration_requested': self.calibration_requested
                 }
-                
-    
+
+            
+            self.field_width = self.field_data['field_corners'][1][0] - self.field_data['field_corners'][0][0] if self.field_data['field_corners'] else 0
+            self.field_height = self.field_data['field_corners'][1][1] - self.field_data['field_corners'][0][1] if self.field_data['field_corners'] else 0
+            self.pixel_to_meter_ratio = self.field_width / 118 if self.field_width > 0 else 0
+
     def draw_ball_visualization(self, frame):
         """Draws ball visualization"""
         with self.result_lock:

@@ -1,6 +1,6 @@
 import cv2
 from threading import Thread, Lock
-from processing.cpu_preprocessor import Preprocessor
+from processing.cpu_preprocessor import CPUPreprocessor
 from config import CAMERA_CALIBRATION_FILE
 
 class VideoStream:

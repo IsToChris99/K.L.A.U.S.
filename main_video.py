@@ -9,7 +9,7 @@ from detection.ball_detector import BallDetector
 from detection.field_detector import FieldDetector
 from analysis.goal_scorer import GoalScorer
 from input.videostream import VideoStream
-from processing.cpu_preprocessor import Preprocessor
+from processing.cpu_preprocessor import CPUPreprocessor
 from analysis.ball_speed import BallSpeed
 from config import (
     VIDEO_PATH, DETECTION_WIDTH, DETECTION_HEIGHT,
@@ -71,7 +71,7 @@ class CombinedTracker:
         self.last_frame_count = 0
 
         # Camera calibration
-        self.camera_calibration = Preprocessor(CAMERA_CALIBRATION_FILE)
+        self.camera_calibration = CPUPreprocessor(CAMERA_CALIBRATION_FILE)
 
         # Ball speed calculator
         self.timestamp_ns = 0
@@ -148,7 +148,7 @@ class CombinedTracker:
             # Ball detection with field_bounds
             detection_result = self.ball_tracker.detect_ball(frame, field_bounds)
             self.ball_tracker.update_tracking(detection_result, field_bounds)
-            self.velocity = self.ball_speed.update(detection_result[0], self.timestamp_ns)
+            self.velocity = self.ball_speed.update(detection_result[0], self.timestamp_ns, self.field_width, self.field_height)
 
             # Goal scoring system update
             ball_position = detection_result[0] if detection_result[0] is not None else None
@@ -199,7 +199,7 @@ class CombinedTracker:
                 }
             self.field_width = self.field_data['field_corners'][1][0] - self.field_data['field_corners'][0][0] if self.field_data['field_corners'] else 0
             self.field_height = self.field_data['field_corners'][1][1] - self.field_data['field_corners'][0][1] if self.field_data['field_corners'] else 0
-            print(f"Field dimensions: {self.field_width} x {self.field_height}")
+
 
     def draw_ball_visualization(self, frame):
         """Draws ball visualization"""
