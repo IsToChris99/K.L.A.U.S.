@@ -11,7 +11,7 @@ Detection
 ==============================================================================
 
 Automatic Color detection:
-    -   A function that automatically recognizes the color of the ball and field
+    -   A function that recognizes the color of the ball and field (additional Color Picker Tool in calibration mode for easy Color Calibration)
 
 Goal detection:
     -   Currently the goal detection works by detecting the ball near the goal. If the ball is too fast, there is no frame of the ball inside the goal and no goal is detected.
@@ -35,6 +35,7 @@ Camera
 Camera readout:
     -   Camera readout is too slow due to resize and camera calibration. (Tim) 🔄 (Undistortion is missing in gpu_preprocessor shader, wrong CPU undistortion due to resize)
     -   Add config variables CAM_WIDTH, CAM_HEIGHT, CAM_X_OFFSET, CAM_Y_OFFSET to initialization of camera setttings in imput/ids_camera.py (Tim)
+    -   Make ids_camera.py settings controllable from config (Tim)
 
 Camera calibration:
     -   Perspective transformation

@@ -119,7 +119,7 @@ class IDS_Camera:
             # Disable auto gain and set a fixed value
             self._nodemap_remote.FindNode("GainAuto").SetCurrentEntry("Off")
             gain_node = self._nodemap_remote.FindNode("Gain")
-            gain_node.SetValue(20.0)
+            gain_node.SetValue(10.0)
             print(f"- Gain: {gain_node.Value()} dB")
 
             self._nodemap_remote.FindNode("BlackLevel").SetValue(10.0)

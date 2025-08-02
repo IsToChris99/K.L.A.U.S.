@@ -9,7 +9,7 @@ from detection.ball_detector import BallDetector
 from detection.field_detector import FieldDetector
 from analysis.goal_scorer import GoalScorer
 from input.videostream import VideoStream
-from processing.preprocessor import Preprocessor
+from processing.cpu_preprocessor import Preprocessor
 from config import (
     VIDEO_PATH, DETECTION_WIDTH, DETECTION_HEIGHT,
     DISPLAY_FPS, DISPLAY_INTERVAL,

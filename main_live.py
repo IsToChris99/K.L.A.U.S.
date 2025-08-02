@@ -9,7 +9,7 @@ from detection.ball_detector import BallDetector
 from detection.field_detector import FieldDetector
 from analysis.goal_scorer import GoalScorer
 from input.ids_camera import IDS_Camera
-from processing.preprocessor import Preprocessor
+from processing.cpu_preprocessor import CPUPreprocessor
 from processing.gpu_preprocessor import GPUPreprocessor
 import config
 
@@ -66,8 +66,9 @@ class CombinedTracker:
         self.last_frame_count = 0
 
         # Camera calibration - make undistortion optional for performance
-        self.camera_calibration = Preprocessor(config.CAMERA_CALIBRATION_FILE)
+        self.camera_calibration = CPUPreprocessor(config.CAMERA_CALIBRATION_FILE)
         self.gpu_preprocessor = GPUPreprocessor((1440, 1080), (config.DETECTION_WIDTH, config.DETECTION_HEIGHT))
+        self.cpu_preprocessor = CPUPreprocessor(config.CAMERA_CALIBRATION_FILE)
         # Pre-initialize for target resolution to avoid runtime overhead
         self.camera_calibration.initialize_for_size((config.DETECTION_WIDTH, config.DETECTION_HEIGHT))
 
@@ -86,7 +87,8 @@ class CombinedTracker:
             # Get frame from IDS camera
             bayer_frame, metadata = self.camera.get_frame()
             t_read = time.perf_counter()
-            
+            if metadata is not None:
+                print(f"\rOffsets: {metadata.get('offset_x', 0)}, {metadata.get('offset_y', 0)}", end="")
             if bayer_frame is None:
                 continue
 
@@ -145,7 +147,6 @@ class CombinedTracker:
                 }
                 
             
-            
     def field_tracking_thread(self):
         """Thread for Field-Tracking"""
         while self.running:
@@ -176,7 +177,6 @@ class CombinedTracker:
                     'calibration_requested': self.calibration_requested
                 }
                 
-            
     
     def draw_ball_visualization(self, frame):
         """Draws ball visualization"""
@@ -362,20 +362,6 @@ class CombinedTracker:
                 print(f"Failed to reinitialize GPU, falling back to CPU: {e}")
                 self.use_gpu_processing = False
     
-    def _process_frame_cpu(self, bayer_frame):
-        """Processes a Bayer frame using CPU preprocessing"""
-        # Convert Bayer to RGB
-        color_frame = cv2.cvtColor(bayer_frame, cv2.COLOR_BAYER_RG2RGB)
-        
-        # Resize to target resolution
-        resized_frame = cv2.resize(color_frame, (config.DETECTION_WIDTH, config.DETECTION_HEIGHT),)
-        
-        # Apply camera calibration undistortion if enabled
-        if self.enable_undistortion and self.camera_calibration.calibrated:
-            resized_frame = self.camera_calibration.undistort_frame(resized_frame)
-        
-        return resized_frame
-    
 
     def _show_help(self):
         """Displays help information"""
@@ -430,9 +416,9 @@ class CombinedTracker:
                     except Exception as e:
                         print(f"\nGPU processing failed, falling back to CPU: {e}")
                         self.use_gpu_processing = False
-                        frame = self._process_frame_cpu(bayer_frame)
+                        frame, _ = self.cpu_preprocessor.process_frame(bayer_frame)
                 else:
-                    frame = self._process_frame_cpu(bayer_frame)
+                    frame, _ = self.cpu_preprocessor.process_frame(bayer_frame)
                 
                 t_process = time.perf_counter()
                 delta_t_sec = t_process - t_start

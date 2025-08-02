@@ -7,6 +7,7 @@ import pyglet
 from pyglet.gl import *
 import time
 import config
+from .cpu_preprocessor import CPUPreprocessor
 
 # Disable PyOpenGL error checking for maximum speed.
 # For debugging, set to True: pyglet.options['debug_gl'] = True
@@ -24,7 +25,7 @@ class GPUPreprocessor:
     Output: Processed RGB frame (NumPy Array)
     """
 
-    def __init__(self, bayer_size = (1440, 1080), target_size=(720, 540), calibration_file=config.CAMERA_CALIBRATION_FILE):
+    def __init__(self, bayer_size = (config.CAM_WIDTH, config.CAM_HEIGHT), target_size=(config.DETECTION_WIDTH, config.DETECTION_HEIGHT), calibration_file=config.CAMERA_CALIBRATION_FILE):
         """
         Initializes the GPU processor.
 
@@ -65,8 +66,7 @@ class GPUPreprocessor:
         self.use_cpu_fallback = False
         
         # CPU fallback preprocessing instance
-        from .preprocessor import Preprocessor
-        self.cpu_preprocessor = Preprocessor(calibration_file)
+        self.cpu_preprocessor = CPUPreprocessor(calibration_file)
         
         # Initialize OpenGL context immediately
         self._initialize_gl_context()
@@ -377,19 +377,11 @@ class GPUPreprocessor:
         """
         # Check if we should use CPU fallback
         if self.use_cpu_fallback:
-            # Convert Bayer to RGB using OpenCV
-            rgb_frame = cv2.cvtColor(bayer_frame, cv2.COLOR_BayerRG2RGB)
-            # Resize to target size
-            rgb_frame = cv2.resize(rgb_frame, (self.target_width, self.target_height))
-            # Apply undistortion using CPU preprocessor
-            return self.cpu_preprocessor.undistort_frame(rgb_frame)
-        
+            return self.cpu_preprocessor.process_frame(bayer_frame, target_size=(self.target_width, self.target_height))
+
         # Check if initialization is needed
         if not self.initialized:
-            return self.cpu_preprocessor.undistort_frame(
-                cv2.resize(cv2.cvtColor(bayer_frame, cv2.COLOR_BayerRG2RGB), 
-                          (self.target_width, self.target_height))
-            )
+            return self.cpu_preprocessor.process_frame(bayer_frame, target_size=(self.target_width, self.target_height))
             
         try:
             # --- GPU Operations (minimized OpenGL calls) ---
@@ -443,10 +435,7 @@ class GPUPreprocessor:
                 else:
                     # Fallback to synchronous read
                     glBindBuffer(GL_PIXEL_PACK_BUFFER, 0)
-                    glReadPixels(0, 0, self.target_width, self.target_height, GL_BGR, GL_UNSIGNED_BYTE, self.output_buffer)
-                    buffer_data = np.frombuffer(self.output_buffer, dtype=np.uint8)
-                    frame_data = buffer_data.reshape((self.target_height, self.target_width, 3))
-                    self.output_frame[:] = frame_data  # No flipud needed - handled in shader
+                    return self.cpu_preprocessor.process_frame(bayer_frame, target_size=(self.target_width, self.target_height))
                 
                 glBindBuffer(GL_PIXEL_PACK_BUFFER, 0)
                 self.pbo_index = 1 - self.pbo_index  # Swap PBOs
@@ -462,10 +451,8 @@ class GPUPreprocessor:
         except Exception as e:
             print(f"GPU processing failed, falling back to CPU: {e}")
             self.use_cpu_fallback = True
-            # Fallback to CPU processing
-            rgb_frame = cv2.cvtColor(bayer_frame, cv2.COLOR_BayerRG2RGB)
-            rgb_frame = cv2.resize(rgb_frame, (self.target_width, self.target_height))
-            return self.cpu_preprocessor.undistort_frame(rgb_frame)
+            # Fallback to CPU processing using the dedicated process_frame method
+            return self.cpu_preprocessor.process_frame(bayer_frame, target_size=(self.target_width, self.target_height))
 
     def close(self):
         """Releases OpenGL resources and window."""
