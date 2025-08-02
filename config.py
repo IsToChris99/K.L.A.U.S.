@@ -2,13 +2,13 @@
 
 # ================== VIDEO & CAMERA SETTINGS ==================
 # VIDEO_PATH = "C:\\Users\\Tim\\OneDrive - TH Köln\\03_Hochschule\\6_Semester\\Kicker_Projekt\\08.avi"
-VIDEO_PATH = "C:/Users/joshu/OneDrive - TH Köln/Kicker (Kicker Klaus) - General/Kicker_Videos/2025-07-31_IDS_Cam_250fps_mit_neuen_Figuren/12.avi"
+VIDEO_PATH = "C:\\Users\\joshu\\OneDrive - TH Köln\\Python Workspace\\Tischkicker\\0_Material\\2025-07-03_Testvideos_250fps\\07.avi"
 
 CAM_WIDTH = 1440
 CAM_HEIGHT = 1080
 
-CAM_X_OFFSET = 0
-CAM_Y_OFFSET = 0
+CAM_X_OFFSET = 8
+CAM_Y_OFFSET = 4
 
 DETECTION_WIDTH = 720
 DETECTION_HEIGHT = 540
@@ -37,30 +37,29 @@ FIELD_CALIBRATION_FILE = "detection\\field_calibration.json"
 # BALL_OWER_ALT = (10, 120, 200)
 # BALL_UPPER_ALT = (40, 255, 255)
 
-# Yellow ball - main color
-BALL_LOWER = (20, 50, 10)
-BALL_UPPER = (40, 255, 255)
+        # Farbeinstellungen HSV (orange)
+BALL_LOWER = (0, 120, 200)
+BALL_UPPER = (30, 255, 255)
 
-# Yellow ball - alternative values
-BALL_LOWER_ALT = (20, 120, 200)
+BALL_LOWER_ALT = (10, 120, 200)
 BALL_UPPER_ALT = (40, 255, 255)
 
 # ================== FIELD DETECTION (HSV VALUES) ==================
-# Green field - main color - Live Color
-FIELD_GREEN_LOWER = (100, 110, 20)
-FIELD_GREEN_UPPER = (110, 120, 80)
+# # Green field - main color - Live Color
+# FIELD_GREEN_LOWER = (100, 110, 20)
+# FIELD_GREEN_UPPER = (110, 120, 80)
 
-# Green field - alternative values - Live Color
-FIELD_GREEN_LOWER_ALT = (100, 110, 60)
-FIELD_GREEN_UPPER_ALT = (115, 130, 100)
+# # Green field - alternative values - Live Color
+# FIELD_GREEN_LOWER_ALT = (100, 110, 60)
+# FIELD_GREEN_UPPER_ALT = (115, 130, 100)
 
-# # Green field - main color - Video Color
-# FIELD_GREEN_LOWER = (50, 20, 20)
-# FIELD_GREEN_UPPER = (80, 100, 100)
+        # Farbeinstellungen für grünes Spielfeld (HSV)
+FIELD_GREEN_LOWER = (20, 40, 40)
+FIELD_GREEN_UPPER = (80, 255, 100)
 
-# # Green field - alternative values - Video Color
-# FIELD_GREEN_LOWER_ALT = (80, 90, 80)
-# FIELD_GREEN_UPPER_ALT = (120, 255, 255)
+        # Alternative Farbwerte für verschiedene Beleuchtungen
+FIELD_GREEN_LOWER_ALT = (35, 30, 30)
+FIELD_GREEN_UPPER_ALT = (100, 255, 100)
 
 # Goals (bright/white areas) - unused at the moment
 GOAL_LOWER = (0, 0, 70)
