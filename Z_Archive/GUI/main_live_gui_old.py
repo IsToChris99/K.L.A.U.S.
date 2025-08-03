@@ -26,7 +26,7 @@ import config
 class CombinedTracker:
     """Combined Ball and Field Tracker with Multithreading"""
     
-    def __init__(self, video_path=None, use_webcam=False):
+    def __init__(self):
         self.count = 0
         
         self.ball_tracker = BallDetector()
@@ -44,11 +44,6 @@ class CombinedTracker:
         # Initialize IDS Camera later when needed (not in constructor)
         self.camera = None
         self.camera_available = False
-        
-        # Video file support
-        self.video_capture = None
-        self.video_path = video_path
-        self.use_video_file = video_path is not None
         
         # Visualization modes
         self.BALL_ONLY = 1
@@ -77,7 +72,7 @@ class CombinedTracker:
 
         # Camera calibration
         self.camera_calibration = CPUPreprocessor(config.CAMERA_CALIBRATION_FILE)
-        self.gpu_preprocessor = GPUPreprocessor((1440, 1080), (config.DETECTION_WIDTH, config.DETECTION_HEIGHT))
+        self.gpu_preprocessor = None  # Wird lazy im Tracking-Thread erstellt
         self.cpu_preprocessor = CPUPreprocessor(config.CAMERA_CALIBRATION_FILE)
         self.camera_calibration.initialize_for_size((config.DETECTION_WIDTH, config.DETECTION_HEIGHT))
 
@@ -87,73 +82,48 @@ class CombinedTracker:
     def initialize_camera(self):
         """Initialisiert die Kamera mit Fehlerbehandlung"""
         try:
-            if self.camera is None:
-                self.camera = IDS_Camera()
+            # Wenn Kamera bereits vorhanden ist, zuerst stoppen
+            if self.camera is not None:
+                try:
+                    print("Stoppe vorhandene Kamera vor Neuinitialisierung...")
+                    self.camera.stop()
+                    time.sleep(0.2)  # Kurz warten
+                except:
+                    pass  # Ignoriere Fehler beim Stoppen
+                self.camera = None
+            
+            print("Initialisiere neue Kamera...")
+            self.camera = IDS_Camera()
             self.camera_available = True
+            print("Kamera erfolgreich initialisiert")
             return True
         except Exception as e:
             print(f"Fehler beim Initialisieren der Kamera: {e}")
             self.camera_available = False
+            self.camera = None
             return False
     
-    def initialize_video(self, video_path):
-        """Initialisiert Video-Capture für Datei-Wiedergabe"""
-        try:
-            self.video_capture = cv2.VideoCapture(video_path)
-            if not self.video_capture.isOpened():
-                return False
-            self.video_path = video_path
-            self.use_video_file = True
-            return True
-        except Exception as e:
-            print(f"Fehler beim Öffnen der Video-Datei: {e}")
-            return False
-        
     def frame_reader_thread_method(self):
-        """Frame reading thread - reads from camera or video file"""
+        """Frame reading thread - reads from camera"""
         while self.running:
-            if self.use_video_file:
-                # Video-Datei Modus
-                if self.video_capture is None:
-                    time.sleep(0.1)
+            # Kamera Modus
+            if not self.camera_available or self.camera is None:
+                time.sleep(0.1)
+                continue
+                
+            try:
+                bayer_frame, metadata = self.camera.get_frame()
+                if bayer_frame is None:
                     continue
-                    
-                try:
-                    ret, frame = self.video_capture.read()
-                    if not ret:
-                        # Video zu Ende - neu starten
-                        self.video_capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                        continue
-                    
-                    # Store video frame directly (already BGR)
-                    with self.result_lock:
-                        self.current_bayer_frame = frame
-                    
-                    self.count += 1
-                    time.sleep(1/30)  # 30 FPS für Video-Wiedergabe
-                except Exception as e:
-                    print(f"Fehler beim Lesen des Video-Frames: {e}")
-                    time.sleep(0.1)
-                    
-            else:
-                # Kamera Modus
-                if not self.camera_available or self.camera is None:
-                    time.sleep(0.1)
-                    continue
-                    
-                try:
-                    bayer_frame, metadata = self.camera.get_frame()
-                    if bayer_frame is None:
-                        continue
 
-                    # Store raw Bayer frame
-                    with self.result_lock:
-                        self.current_bayer_frame = bayer_frame
+                # Store raw Bayer frame
+                with self.result_lock:
+                    self.current_bayer_frame = bayer_frame
 
-                    self.count += 1
-                except Exception as e:
-                    print(f"Fehler beim Lesen des Frames: {e}")
-                    time.sleep(0.1)
+                self.count += 1
+            except Exception as e:
+                print(f"Fehler beim Lesen des Frames: {e}")
+                time.sleep(0.1)
         
     def ball_tracking_thread(self):
         """Thread for Ball-Tracking"""
@@ -323,6 +293,7 @@ class CombinedTracker:
 
     def stop_threads(self):
         """Stops the tracking threads"""
+        print("Stoppe alle Tracker-Threads...")
         self.running = False
         
         # Send termination signals to worker threads
@@ -332,40 +303,53 @@ class CombinedTracker:
         except:
             pass
         
+        # Warten bis Frame-Reader-Thread gestoppt ist (wichtig für Kamera)
         if self.frame_reader_thread and self.frame_reader_thread.is_alive():
-            self.frame_reader_thread.join(timeout=1.0)
+            print("Warte auf Frame-Reader-Thread...")
+            self.frame_reader_thread.join(timeout=2.0)
+            if self.frame_reader_thread.is_alive():
+                print("Warning: Frame-Reader-Thread konnte nicht gestoppt werden")
+            else:
+                print("Frame-Reader-Thread gestoppt")
         
         if self.ball_thread and self.ball_thread.is_alive():
+            print("Warte auf Ball-Thread...")
             self.ball_thread.join(timeout=1.0)
+            if self.ball_thread.is_alive():
+                print("Warning: Ball-Thread konnte nicht gestoppt werden")
+            else:
+                print("Ball-Thread gestoppt")
             
         if self.field_thread and self.field_thread.is_alive():
+            print("Warte auf Field-Thread...")
             self.field_thread.join(timeout=1.0)
+            if self.field_thread.is_alive():
+                print("Warning: Field-Thread konnte nicht gestoppt werden")
+            else:
+                print("Field-Thread gestoppt")
             
         # Kamera stoppen falls vorhanden
         if self.camera_available and self.camera is not None:
             try:
+                print("Stoppe Kamera...")
                 self.camera.stop()
+                print("Kamera gestoppt")
+                # Kurz warten damit alle Kamera-Threads beendet werden
+                time.sleep(0.5)
+                # Kamera-Objekt auf None setzen für sauberen Neustart
+                self.camera = None
+                self.camera_available = False
+                print("Kamera-Objekt zurückgesetzt")
             except Exception as e:
                 print(f"Fehler beim Stoppen der Kamera: {e}")
-        
-        # Video-Capture stoppen falls vorhanden
-        if self.video_capture is not None:
-            try:
-                self.video_capture.release()
-                self.video_capture = None
-            except Exception as e:
-                print(f"Fehler beim Stoppen des Videos: {e}")
+                # Auch bei Fehler Kamera zurücksetzen
+                self.camera = None
+                self.camera_available = False
     
     def toggle_processing_mode(self):
         """Toggles between CPU and GPU processing"""
         self.use_gpu_processing = not self.use_gpu_processing
-        
-        if self.use_gpu_processing:
-            try:
-                self.gpu_preprocessor.force_reinitialize()
-            except Exception as e:
-                print(f"Failed to reinitialize GPU, falling back to CPU: {e}")
-                self.use_gpu_processing = False
+        print(f"Processing mode switched to: {'GPU' if self.use_gpu_processing else 'CPU'}")
 
 
 # ================== GUI COMPONENTS ==================
@@ -387,27 +371,19 @@ class KickerTrackingThread(QThread):
         """Führt die gesamte Tracking-Logik aus"""
         self._running = True
         
-        # Input-Quelle initialisieren (Kamera oder Video)
-        if self.tracker.use_video_file:
-            if not self.tracker.video_capture or not self.tracker.video_capture.isOpened():
-                self.log_message.emit("Fehler: Video-Datei konnte nicht geöffnet werden")
-                self.camera_status_update.emit("Video: Nicht verfügbar")
-                return
-            self.camera_status_update.emit("Video: Aktiv")
-        else:
-            # Kamera initialisieren
-            if not self.tracker.initialize_camera():
-                self.log_message.emit("Fehler: Keine Kamera verfügbar")
-                self.camera_status_update.emit("Kamera: Nicht verfügbar")
-                return
-            
-            # Kamera starten
-            try:
-                self.tracker.camera.start()
-                self.camera_status_update.emit("Kamera: Aktiv")
-            except Exception as e:
-                self.log_message.emit(f"Fehler beim Starten der Kamera: {e}")
-                return
+        # Kamera initialisieren
+        if not self.tracker.initialize_camera():
+            self.log_message.emit("Fehler: Keine Kamera verfügbar")
+            self.camera_status_update.emit("Kamera: Nicht verfügbar")
+            return
+        
+        # Kamera starten
+        try:
+            self.tracker.camera.start()
+            self.camera_status_update.emit("Kamera: Aktiv")
+        except Exception as e:
+            self.log_message.emit(f"Fehler beim Starten der Kamera: {e}")
+            return
         
         # Tracking-Threads starten
         try:
@@ -427,7 +403,7 @@ class KickerTrackingThread(QThread):
                 # Frame von Kamera holen
                 with self.tracker.result_lock:
                     if self.tracker.current_bayer_frame is None:
-                        #self.msleep(5)
+                        self.msleep(5)
                         continue
                     bayer_frame = self.tracker.current_bayer_frame.copy()
                 
@@ -435,58 +411,55 @@ class KickerTrackingThread(QThread):
                 
                 # Frame verarbeiten - Robuste Fehlerbehandlung
                 frame = None
-                try:
-                    if self.tracker.use_video_file:
-                        # Bei Video-Dateien: Preprocessing auf BGR-Frame anwenden
-                        # Video-Frames sind bereits BGR, aber wir wenden trotzdem Preprocessing an
-                        if self.tracker.use_gpu_processing:
-                            try:
-                                # GPU-Preprocessing für Video-Frame
-                                if hasattr(self.tracker.gpu_preprocessor, 'process_video_frame'):
-                                    frame = self.tracker.gpu_preprocessor.process_video_frame(bayer_frame)
-                                else:
-                                    # Fallback: CPU-Preprocessing verwenden
-                                    frame, _ = self.tracker.cpu_preprocessor.process_video_frame(bayer_frame)
-                            except:
-                                # Fallback auf CPU
-                                if hasattr(self.tracker.cpu_preprocessor, 'process_video_frame'):
-                                    frame, _ = self.tracker.cpu_preprocessor.process_video_frame(bayer_frame)
-                                else:
-                                    # Letzter Fallback: Frame direkt verwenden
-                                    frame = cv2.resize(bayer_frame, (config.DETECTION_WIDTH, config.DETECTION_HEIGHT))
-                        else:
-                            # CPU-Preprocessing für Video-Frame
-                            if hasattr(self.tracker.cpu_preprocessor, 'process_video_frame'):
-                                frame, _ = self.tracker.cpu_preprocessor.process_video_frame(bayer_frame)
-                            else:
-                                # Fallback: Frame direkt resizen
-                                frame = cv2.resize(bayer_frame, (config.DETECTION_WIDTH, config.DETECTION_HEIGHT))
-                    else:
-                        # Bei Kamera: Bayer-Frame verarbeiten
-                        if self.tracker.use_gpu_processing:
-                            frame = self.tracker.gpu_preprocessor.process_frame(bayer_frame)
-                        else:
-                            frame, _ = self.tracker.cpu_preprocessor.process_frame(bayer_frame)
-                except Exception as e:
-                    # Bei GPU-Fehler: Auf CPU umschalten und nochmal versuchen
-                    if self.tracker.use_gpu_processing and not self.tracker.use_video_file:
-                        self.log_message.emit(f"GPU-Fehler, wechsle zu CPU: {e}")
-                        self.tracker.use_gpu_processing = False
-                        try:
-                            frame, _ = self.tracker.cpu_preprocessor.process_frame(bayer_frame)
-                        except Exception as cpu_e:
-                            self.log_message.emit(f"CPU-Verarbeitung fehlgeschlagen: {cpu_e}")
-                            continue  # Frame überspringen, nicht das ganze Tracking beenden
-                    elif self.tracker.use_video_file:
-                        # Bei Video-Fehler: Direkt das ursprüngliche Frame verwenden
-                        self.log_message.emit(f"Video-Preprocessing fehlgeschlagen, verwende Original-Frame: {e}")
-                        frame = bayer_frame
-                    else:
-                        self.log_message.emit(f"Frame-Verarbeitung fehlgeschlagen: {e}")
-                        continue  # Frame überspringen, nicht das ganze Tracking beenden
                 
-                # Nur weitermachen wenn Frame erfolgreich verarbeitet wurde
+                if self.tracker.use_gpu_processing:
+                    try:
+                        # GPU-Preprocessor lazy im Tracking-Thread erstellen
+                        if self.tracker.gpu_preprocessor is None:
+                            self.tracker.gpu_preprocessor = GPUPreprocessor((1440, 1080), (config.DETECTION_WIDTH, config.DETECTION_HEIGHT))
+                            print("GPU-Preprocessor im Tracking-Thread erstellt")
+                        
+                        frame = self.tracker.gpu_preprocessor.process_frame(bayer_frame)
+                    except Exception as e:
+                        self.log_message.emit(f"GPU-Verarbeitungsfehler: {e}")
+                        self.tracker.use_gpu_processing = False
+                        frame = None
+                
+                # CPU-Verarbeitung wenn GPU deaktiviert oder fehlgeschlagen
                 if frame is None:
+                    try:
+                        # CPU-Preprocessor erwartet ein Tuple (frame, undistorted_frame)
+                        frame_result = self.tracker.cpu_preprocessor.process_frame(bayer_frame)
+                        if isinstance(frame_result, tuple) and len(frame_result) >= 1:
+                            frame = frame_result[0]  # Erstes Element ist das verarbeitete Frame
+                        else:
+                            frame = frame_result  # Falls nur ein Frame zurückgegeben wird
+                    except Exception as cpu_e:
+                        self.log_message.emit(f"CPU-Verarbeitungsfehler: {cpu_e}")
+                        # Notfall-Fallback: Frame direkt verwenden
+                        try:
+                            if len(bayer_frame.shape) == 3 and bayer_frame.shape[2] == 3:
+                                # Frame ist bereits BGR
+                                frame = cv2.resize(bayer_frame, (config.DETECTION_WIDTH, config.DETECTION_HEIGHT))
+                            elif len(bayer_frame.shape) == 2:
+                                # Grayscale zu BGR konvertieren
+                                bgr_frame = cv2.cvtColor(bayer_frame, cv2.COLOR_GRAY2BGR)
+                                frame = cv2.resize(bgr_frame, (config.DETECTION_WIDTH, config.DETECTION_HEIGHT))
+                            else:
+                                # Bayer zu BGR konvertieren
+                                bgr_frame = cv2.cvtColor(bayer_frame, cv2.COLOR_BayerRG2BGR)
+                                frame = cv2.resize(bgr_frame, (config.DETECTION_WIDTH, config.DETECTION_HEIGHT))
+                        except Exception as fallback_e:
+                            self.log_message.emit(f"Notfall-Fallback fehlgeschlagen: {fallback_e}")
+                            continue
+                
+                # Nur weitermachen wenn Frame erfolgreich verarbeitet wurde und gültig ist
+                if frame is None or not isinstance(frame, np.ndarray) or frame.size == 0:
+                    continue
+                
+                # Zusätzliche Validierung: Frame sollte 3-Kanal BGR sein
+                if len(frame.shape) != 3 or frame.shape[2] != 3:
+                    self.log_message.emit(f"Warning: Frame hat unerwartete Form: {frame.shape}, überspringe...")
                     continue
                 
                 # Frame für Analyse-Threads bereitstellen
@@ -511,9 +484,12 @@ class KickerTrackingThread(QThread):
                     frame_count = 0
                     last_fps_time = current_time
                 
-                # Nur jeden 8. Frame für Anzeige (ca. 30 FPS bei 250 FPS Verarbeitung)
+                # Display-Rate für Kamera anpassen
+                display_interval = 8  # Updates für Kamera
+                
+                # Nur jeden n-ten Frame für Anzeige
                 display_counter += 1
-                if display_counter % 8 == 0:
+                if display_counter % display_interval == 0:
                     try:
                         # Visualisierungen hinzufügen
                         display_frame = frame.copy()
@@ -539,25 +515,43 @@ class KickerTrackingThread(QThread):
         except Exception as e:
             self.log_message.emit(f"Kritischer Tracking-Fehler: {e}")
         finally:
-            # Cleanup
-            self.tracker.stop_threads()
-            if self.tracker.use_video_file:
-                if self.tracker.video_capture is not None:
-                    try:
-                        self.tracker.video_capture.release()
-                        self.tracker.video_capture = None
-                    except Exception as e:
-                        self.log_message.emit(f"Fehler beim Stoppen des Videos: {e}")
-            else:
-                if self.tracker.camera_available and self.tracker.camera is not None:
-                    try:
-                        self.tracker.camera.stop()
-                    except Exception as e:
-                        self.log_message.emit(f"Fehler beim Stoppen der Kamera: {e}")
+            # Cleanup in der richtigen Reihenfolge
+            print("Beginne Cleanup...")
             
-            status_text = "Video: Gestoppt" if self.tracker.use_video_file else "Kamera: Gestoppt"
-            self.camera_status_update.emit(status_text)
+            # 1. Zuerst Tracker-Threads stoppen
+            self.tracker.stop_threads()
+            print("Tracker-Threads gestoppt")
+            
+            # 2. GPU-Preprocessor cleanup
+            if self.tracker.gpu_preprocessor is not None:
+                try:
+                    self.tracker.gpu_preprocessor.close()
+                    self.tracker.gpu_preprocessor = None
+                    print("GPU-Preprocessor geschlossen")
+                except Exception as e:
+                    print(f"Fehler beim Schließen des GPU-Preprocessors: {e}")
+            
+            # 3. Dann Kamera stoppen
+            if self.tracker.camera_available and self.tracker.camera is not None:
+                try:
+                    print("Stoppe Kamera aus Tracking-Thread...")
+                    self.tracker.camera.stop()
+                    print("Kamera aus Tracking-Thread gestoppt")
+                    # Kurz warten damit alle Kamera-Threads beendet werden
+                    time.sleep(0.5)
+                    # Kamera-Objekt auf None setzen für sauberen Neustart
+                    self.tracker.camera = None
+                    self.tracker.camera_available = False
+                    print("Kamera-Objekt aus Tracking-Thread zurückgesetzt")
+                except Exception as e:
+                    self.log_message.emit(f"Fehler beim Stoppen der Kamera: {e}")
+                    # Auch bei Fehler Kamera zurücksetzen
+                    self.tracker.camera = None
+                    self.tracker.camera_available = False
+            
+            self.camera_status_update.emit("Kamera: Gestoppt")
             self.log_message.emit("Tracking beendet")
+            print("Cleanup abgeschlossen")
     
     def stop(self):
         self._running = False
@@ -617,11 +611,37 @@ class KickerMainWindow(QMainWindow):
         """)
         self.big_score_label.setMinimumHeight(120)
         
+        # Match Control Buttons - Container für Button-Verwaltung
+        self.match_buttons_widget = QWidget()
+        match_buttons_layout = QVBoxLayout(self.match_buttons_widget)
+        match_buttons_layout.setContentsMargins(0, 15, 0, 0)
+        
+        # Start Match Button (initial sichtbar)
+        self.start_match_btn = QPushButton("Start Match")
+        self.start_match_btn.setStyleSheet("""
+            QPushButton {
+                font-size: 15px;
+                padding: 40px 40px;
+                background-color: #4CAF50;
+                color: white;
+                border: none;
+                border-radius: 8px;
+            }
+            QPushButton:hover {
+                background-color: #45a049;
+            }
+            QPushButton:pressed {
+                background-color: #3d8b40;
+            }
+        """)
+        self.start_match_btn.setMaximumWidth(200)
+        
+        # Score Reset Button (initial versteckt)
         self.reset_score_btn = QPushButton("Score zurücksetzen")
         self.reset_score_btn.setStyleSheet("""
             QPushButton {
                 font-size: 14px;
-                padding: 10px 20px;
+                padding: 14px 20px;
                 background-color: #FF6B6B;
                 color: white;
                 border: none;
@@ -635,9 +655,37 @@ class KickerMainWindow(QMainWindow):
             }
         """)
         self.reset_score_btn.setMaximumWidth(200)
+        self.reset_score_btn.hide()  # Initial versteckt
+        
+        # Cancel Match Button (initial versteckt)
+        self.cancel_match_btn = QPushButton("Match abbrechen")
+        self.cancel_match_btn.setStyleSheet("""
+            QPushButton {
+                font-size: 14px;
+                padding: 14px 20px;
+                background-color: #FFA726;
+                color: white;
+                border: none;
+                border-radius: 8px;
+            }
+            QPushButton:hover {
+                background-color: #FF9800;
+            }
+            QPushButton:pressed {
+                background-color: #F57C00;
+            }
+        """)
+        self.cancel_match_btn.setMaximumWidth(200)
+        self.cancel_match_btn.hide()  # Initial versteckt
+        
+        # Buttons zum Layout hinzufügen
+        match_buttons_layout.addWidget(self.start_match_btn)
+        match_buttons_layout.addWidget(self.reset_score_btn)
+        match_buttons_layout.addWidget(self.cancel_match_btn)
+        match_buttons_layout.addStretch()
         
         score_layout.addWidget(self.big_score_label, stretch=4)
-        score_layout.addWidget(self.reset_score_btn, stretch=1)
+        score_layout.addWidget(self.match_buttons_widget, stretch=1)
         
         # Mittlerer Bereich: Video und Controls
         content_layout = QHBoxLayout()
@@ -657,34 +705,6 @@ class KickerMainWindow(QMainWindow):
         # Tracking Controls
         tracking_group = QGroupBox("Tracking Controls")
         tracking_layout = QVBoxLayout(tracking_group)
-        
-        # Input Mode Selection
-        mode_group = QGroupBox("Input-Modus")
-        mode_layout = QVBoxLayout(mode_group)
-        
-        self.mode_button_group = QButtonGroup()
-        self.live_mode_radio = QRadioButton("Live-Kamera")
-        self.video_mode_radio = QRadioButton("Video-Datei")
-        self.live_mode_radio.setChecked(True)  # Standard: Live-Modus
-        
-        self.mode_button_group.addButton(self.live_mode_radio, 0)
-        self.mode_button_group.addButton(self.video_mode_radio, 1)
-        
-        mode_layout.addWidget(self.live_mode_radio)
-        mode_layout.addWidget(self.video_mode_radio)
-        
-        # Video file selection
-        self.video_file_layout = QHBoxLayout()
-        self.video_path_label = QLabel("Keine Datei ausgewählt")
-        self.video_path_label.setStyleSheet("font-style: italic; color: gray;")
-        self.select_video_btn = QPushButton("Video auswählen")
-        self.select_video_btn.setEnabled(False)  # Standardmäßig deaktiviert
-        
-        self.video_file_layout.addWidget(self.video_path_label, stretch=3)
-        self.video_file_layout.addWidget(self.select_video_btn, stretch=1)
-        
-        mode_layout.addLayout(self.video_file_layout)
-        tracking_layout.addWidget(mode_group)
         
         # Control buttons
         self.start_btn = QPushButton("Start Tracking")
@@ -763,26 +783,23 @@ class KickerMainWindow(QMainWindow):
         self.test_camera_btn.clicked.connect(self.test_camera)
         self.calibrate_btn.clicked.connect(self.start_calibration)
         
-        # Mode selection
-        self.live_mode_radio.toggled.connect(self.on_mode_changed)
-        self.video_mode_radio.toggled.connect(self.on_mode_changed)
-        self.select_video_btn.clicked.connect(self.select_video_file)
-        
         self.ball_only_btn.clicked.connect(lambda: self.set_visualization_mode(1))
         self.field_only_btn.clicked.connect(lambda: self.set_visualization_mode(2))
         self.combined_btn.clicked.connect(lambda: self.set_visualization_mode(3))
         
         self.gpu_checkbox.toggled.connect(self.toggle_gpu_processing)
         self.reset_score_btn.clicked.connect(self.reset_score)
+        self.start_match_btn.clicked.connect(self.start_match)
+        self.cancel_match_btn.clicked.connect(self.cancel_match)
         
     @Slot()
     def start_tracking(self):
         if self.tracking_thread is None or not self.tracking_thread.isRunning():
-            # Prüfen ob Video-Modus und Datei ausgewählt
-            if self.video_mode_radio.isChecked():
-                if not hasattr(self.tracker, 'video_capture') or self.tracker.video_capture is None:
-                    self.add_log_message("Fehler: Keine Video-Datei ausgewählt")
-                    return
+            # Status zurücksetzen
+            self.tracker.current_frame = None
+            self.tracker.current_bayer_frame = None
+            self.tracker.ball_result = None
+            self.tracker.field_data = None
             
             self.tracking_thread = KickerTrackingThread(self.tracker)
             self.tracking_thread.frame_ready.connect(self.update_frame)
@@ -795,8 +812,7 @@ class KickerMainWindow(QMainWindow):
             self.start_btn.setEnabled(False)
             self.stop_btn.setEnabled(True)
             
-            mode_text = "Video-Tracking" if self.video_mode_radio.isChecked() else "Live-Tracking"
-            self.add_log_message(f"{mode_text} gestartet")
+            self.add_log_message("Live-Tracking gestartet")
         
     @Slot()
     def stop_tracking(self):
@@ -808,10 +824,7 @@ class KickerMainWindow(QMainWindow):
             self.video_label.setText("Tracking gestoppt")
             self.video_label.setPixmap(QPixmap())
             
-            if self.video_mode_radio.isChecked():
-                self.camera_status_label.setText("Video: Gestoppt")
-            else:
-                self.camera_status_label.setText("Kamera: Gestoppt")
+            self.camera_status_label.setText("Kamera: Gestoppt")
             self.add_log_message("Tracking gestoppt")
     
     @Slot()
@@ -822,48 +835,6 @@ class KickerMainWindow(QMainWindow):
         else:
             self.camera_status_label.setText("Kamera: Nicht verfügbar")
             self.add_log_message("Kamera-Test fehlgeschlagen")
-    
-    @Slot()
-    def on_mode_changed(self):
-        """Wird aufgerufen wenn der Input-Modus geändert wird"""
-        is_video_mode = self.video_mode_radio.isChecked()
-        
-        # Video-Auswahl-Button aktivieren/deaktivieren
-        self.select_video_btn.setEnabled(is_video_mode)
-        
-        # Kamera-Test-Button aktivieren/deaktivieren
-        self.test_camera_btn.setEnabled(not is_video_mode)
-        
-        # Modus im Tracker setzen
-        if hasattr(self, 'tracker'):
-            self.tracker.use_video_file = is_video_mode
-            
-        mode_text = "Video-Modus" if is_video_mode else "Live-Modus"
-        self.add_log_message(f"Modus gewechselt zu: {mode_text}")
-    
-    @Slot()
-    def select_video_file(self):
-        """Öffnet Dialog zur Video-Datei-Auswahl"""
-        file_dialog = QFileDialog()
-        file_path, _ = file_dialog.getOpenFileName(
-            self,
-            "Video-Datei auswählen",
-            "",
-            "Video-Dateien (*.mp4 *.avi *.mov *.mkv *.wmv *.flv *.webm);;Alle Dateien (*)"
-        )
-        
-        if file_path:
-            # Video-Datei im Tracker initialisieren
-            if self.tracker.initialize_video(file_path):
-                self.video_path_label.setText(f"Datei: {file_path.split('/')[-1]}")
-                self.video_path_label.setStyleSheet("color: green;")
-                self.add_log_message(f"Video-Datei ausgewählt: {file_path}")
-                self.camera_status_label.setText("Video: Bereit")
-            else:
-                self.video_path_label.setText("Fehler beim Laden der Datei")
-                self.video_path_label.setStyleSheet("color: red;")
-                self.add_log_message("Fehler beim Laden der Video-Datei")
-                self.camera_status_label.setText("Video: Fehler")
     
     @Slot()
     def start_calibration(self):
@@ -907,6 +878,30 @@ class KickerMainWindow(QMainWindow):
             self.tracker.goal_scorer.reset_score()
             self.add_log_message("Score zurückgesetzt")
     
+    @Slot()
+    def start_match(self):
+        """Startet ein Match und zeigt die Match-Buttons an"""
+        # Start Match Button verstecken
+        self.start_match_btn.hide()
+        
+        # Score Reset und Cancel Match Buttons anzeigen
+        self.reset_score_btn.show()
+        self.cancel_match_btn.show()
+        
+        self.add_log_message("Match gestartet")
+    
+    @Slot()
+    def cancel_match(self):
+        """Bricht das Match ab und zeigt wieder den Start Match Button"""
+        # Score Reset und Cancel Match Buttons verstecken
+        self.reset_score_btn.hide()
+        self.cancel_match_btn.hide()
+        
+        # Start Match Button wieder anzeigen
+        self.start_match_btn.show()
+        
+        self.add_log_message("Match abgebrochen")
+    
     @Slot(np.ndarray)
     def update_frame(self, frame):
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -944,8 +939,6 @@ class KickerMainWindow(QMainWindow):
         if self.tracking_thread and self.tracking_thread.isRunning():
             self.tracking_thread.stop()
         event.accept()
-
-  
 
 # ================== MAIN PROGRAM ==================
 
