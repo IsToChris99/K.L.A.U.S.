@@ -30,20 +30,20 @@ CAMERA_CALIBRATION_FILE = "Z_Archive\\Cam_Lens_Calibration\\calibration_data.jso
 FIELD_CALIBRATION_FILE = "detection\\field_calibration.json"
 
 # ================== BALL DETECTION (HSV VALUES) ==================
-# Yellow ball - main color
-BALL_LOWER = (20, 50, 10)
-BALL_UPPER = (40, 255, 255)
+# # Yellow ball - main color
+# BALL_LOWER = (20, 50, 10)
+# BALL_UPPER = (40, 255, 255)
 
-# Yellow ball - alternative values
-BALL_LOWER_ALT = (20, 120, 200)
-BALL_UPPER_ALT = (40, 255, 255)
-
-# Farbeinstellungen HSV (orange)
-# BALL_LOWER = (0, 120, 200)
-# BALL_UPPER = (30, 255, 255)
-
-# BALL_LOWER_ALT = (10, 120, 200)
+# # Yellow ball - alternative values
+# BALL_LOWER_ALT = (20, 120, 200)
 # BALL_UPPER_ALT = (40, 255, 255)
+
+#Farbeinstellungen HSV (orange)
+BALL_LOWER = (0, 120, 200)
+BALL_UPPER = (30, 255, 255)
+
+BALL_LOWER_ALT = (10, 120, 200)
+BALL_UPPER_ALT = (40, 255, 255)
 
 # ================== FIELD DETECTION (HSV VALUES) ==================
 # # Green field - main color - Live Color
