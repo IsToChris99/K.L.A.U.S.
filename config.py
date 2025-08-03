@@ -2,7 +2,7 @@
 
 # ================== VIDEO & CAMERA SETTINGS ==================
 # VIDEO_PATH = "C:\\Users\\Tim\\OneDrive - TH Köln\\03_Hochschule\\6_Semester\\Kicker_Projekt\\08.avi"
-VIDEO_PATH = "C:/Users/joshu/OneDrive - TH Köln/Kicker (Kicker Klaus) - General/Kicker_Videos/2025-07-31_IDS_Cam_250fps_mit_neuen_Figuren/12.avi"
+VIDEO_PATH = "C:\\Users\\Lola\\Desktop\\TH_Jose\\KAT_Projekt\\videos\\IDS_Cam_250fps\\01.avi"
 
 CAM_WIDTH = 1440
 CAM_HEIGHT = 1080
