@@ -9,7 +9,7 @@ from detection.ball_detector import BallDetector
 from detection.field_detector import FieldDetector
 from analysis.goal_scorer import GoalScorer
 from input.videostream import VideoStream
-from processing.preprocessor import Preprocessor
+from processing.cpu_preprocessor import CPUPreprocessor
 from config import (
     VIDEO_PATH, DETECTION_WIDTH, DETECTION_HEIGHT,
     DISPLAY_FPS, DISPLAY_INTERVAL,
@@ -70,7 +70,7 @@ class CombinedTracker:
         self.last_frame_count = 0
 
         # Camera calibration
-        self.camera_calibration = Preprocessor(CAMERA_CALIBRATION_FILE)
+        self.camera_calibration = CPUPreprocessor(CAMERA_CALIBRATION_FILE)
         
     def frame_reader_thread_method(self):
         """Centralized frame reading thread"""
@@ -141,7 +141,7 @@ class CombinedTracker:
             # Ball detection with field_bounds
             detection_result = self.ball_tracker.detect_ball(frame, field_bounds)
             self.ball_tracker.update_tracking(detection_result, field_bounds)
-            
+
             # Goal scoring system update
             ball_position = detection_result[0] if detection_result[0] is not None else None
             self.goal_scorer.update_ball_tracking(
@@ -189,9 +189,8 @@ class CombinedTracker:
                     'calibration_mode': self.calibration_mode,
                     'calibration_requested': self.calibration_requested
                 }
-                
-            
-    
+
+
     def draw_ball_visualization(self, frame):
         """Draws ball visualization"""
         with self.result_lock:
@@ -366,7 +365,7 @@ class CombinedTracker:
         print("  'c' - Show camera calibration info")
         print("  'h' - Show help")
         print("=" * 60)
-        
+
         self.start_threads()
         
         try:

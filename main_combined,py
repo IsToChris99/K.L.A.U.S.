@@ -3,11 +3,13 @@ import numpy as np
 import time
 from threading import Thread, Lock
 from queue import Queue, LifoQueue, Empty
+from collections import deque
 
 # Local imports
 from detection.ball_detector import BallDetector  
 from detection.field_detector import FieldDetector
 from analysis.goal_scorer import GoalScorer
+from input.videostream import VideoStream
 from input.ids_camera import IDS_Camera
 from processing.cpu_preprocessor import CPUPreprocessor
 from processing.gpu_preprocessor import GPUPreprocessor
@@ -20,11 +22,11 @@ class CombinedTracker:
 
     """Combined Ball and Field Tracker with Multithreading"""
     
-    def __init__(self, video_path=None, use_webcam=False):
+    def __init__(self):
         self.count = 0
-        # IDS Camera doesn't use video_path or use_webcam parameters
-        # but we keep them for compatibility
-        
+
+        self.video_path = config.VIDEO_PATH
+        self.is_live = config.IS_LIVE
         
         self.ball_tracker = BallDetector()
         self.field_detector = FieldDetector()
@@ -39,7 +41,10 @@ class CombinedTracker:
         self.calibration_requested = False
         
         # Initialize IDS Camera instead of VideoStream
-        self.camera = IDS_Camera()
+        if self.is_live:
+            self.camera = IDS_Camera()
+        else:
+            self.stream = VideoStream(self.video_path)
         
         # Visualization modes
         self.BALL_ONLY = 1
@@ -55,8 +60,8 @@ class CombinedTracker:
         self.frame_queue = LifoQueue(maxsize=1) 
         self.result_lock = Lock()
         
-        self.current_frame = None
-        self.current_bayer_frame = None  # Store raw Bayer frame from camera thread
+        self.current_unprocessed_frame = None
+        self.current_unprocessed_frame = None  # Store raw Bayer frame from camera thread
         self.ball_result = None
         self.field_data = None
         
@@ -82,7 +87,7 @@ class CombinedTracker:
         # Ball speed calculator
         self.timestamp_ns = 0
         self.velocity = 0.0
-        self.px_to_cm_ratio = 0
+        self.pixel_to_meter_ratio = 0
         self.ball_speed = BallSpeed()
         
     def frame_reader_thread_method(self):
@@ -91,34 +96,32 @@ class CombinedTracker:
         while self.running:
             t_start = time.perf_counter()
             
-            # Get frame from IDS camera
-            bayer_frame, metadata = self.camera.get_frame()
-            t_read = time.perf_counter()
-            # if metadata is not None:
-            #     print(f"\rOffsets: {metadata.get('offset_x', 0)}, {metadata.get('offset_y', 0)}", end="")
-            if bayer_frame is None:
-                continue
+            if self.is_live:
+                # Get frame from IDS camera
+                unprocessed_frame, metadata = self.camera.get_frame()
+                t_read = time.perf_counter()
+                # if metadata is not None:
+                #     print(f"\rOffsets: {metadata.get('offset_x', 0)}, {metadata.get('offset_y', 0)}", end="")
+                if unprocessed_frame is None:
+                    continue
 
-            read_duration += (t_read - t_start)
+                read_duration += (t_read - t_start)
+                # Store raw Bayer frame (processing will happen in main thread)
+                with self.result_lock:
+                    self.current_unprocessed_frame = unprocessed_frame
+            else:
+                ret, unprocessed_frame = self.stream.read()
+                t_read = time.perf_counter()
 
-            # Store raw Bayer frame (processing will happen in main thread)
-            with self.result_lock:
-                self.current_bayer_frame = bayer_frame
+                if not ret or unprocessed_frame is None:
+                    continue
 
-            self.count += 1
-            if self.count % 250 == 0:  # Every 250 frames
-                read_duration_avg = (read_duration / self.count) * 1000000  # in µs
-                #print(f"\rRead: {read_duration_avg:.2f} µs", end="")
+                with self.result_lock:
+                    self.current_unprocessed_frame = unprocessed_frame
 
-            # Bayer frame is now stored and will be processed in main thread
-            # No queue operations needed here anymore
-        
     def ball_tracking_thread(self):
         """Thread for Ball-Tracking"""
-
-        count = 0
         while self.running:
-            count += 1
             try:
                 frame = self.frame_queue.get(timeout=1.0)
                 if frame is None:
@@ -139,11 +142,8 @@ class CombinedTracker:
             # Ball detection with field_bounds
             detection_result = self.ball_tracker.detect_ball(frame, field_bounds)
             self.ball_tracker.update_tracking(detection_result, field_bounds)
-
-
-            if count % 8 == 0:  # Every 10 frames
-                self.velocity = self.ball_speed.update(detection_result[0], self.timestamp_ns if self.timestamp_ns > 0 else time.perf_counter_ns(), self.px_to_cm_ratio)
-            #print(f"\rBall Velocity: {self.velocity:.2f} cm/s", end="")
+            self.velocity = self.ball_speed.update(detection_result[0], self.timestamp_ns)
+            print(f"\rBall Velocity: {self.velocity:.2f} cm/s", end="")
 
             # Goal scoring system update
             ball_position = detection_result[0] if detection_result[0] is not None else None
@@ -192,14 +192,10 @@ class CombinedTracker:
                     'calibration_requested': self.calibration_requested
                 }
 
-
-            self.field_width = (self.field_data['field_corners'][1][0] - self.field_data['field_corners'][0][0] 
-                                if self.field_data['field_corners'] is not None and len(self.field_data['field_corners']) >= 2 
-                                and self.field_data['field_corners'][0] is not None 
-                                and self.field_data['field_corners'][1] is not None 
-                                else 0)
-            self.px_to_cm_ratio = self.field_width / 118 if self.field_width != 0 else 0
-            # print(f"Field Width: {self.field_width} px, Pixel to Meter Ratio: {self.px_to_cm_ratio:.4f}")
+            
+            self.field_width = self.field_data['field_corners'][1][0] - self.field_data['field_corners'][0][0] if self.field_data['field_corners'] else 0
+            self.field_height = self.field_data['field_corners'][1][1] - self.field_data['field_corners'][0][1] if self.field_data['field_corners'] else 0
+            self.pixel_to_meter_ratio = self.field_width / 118 if self.field_width > 0 else 0
 
     def draw_ball_visualization(self, frame):
         """Draws ball visualization"""
@@ -412,12 +408,14 @@ class CombinedTracker:
         self._show_help()
         
         # Start IDS camera acquisition
-        self.camera.start()
+        if self.is_live:
+            self.camera.start()
+
         self.start_threads()
         
         try:
             # Enhanced preprocessing time measurement
-            from collections import deque
+
             processing_times = deque(maxlen=100)  # Keep last 100 measurements
             count = 0
             last_stats_time = time.time()
@@ -425,24 +423,24 @@ class CombinedTracker:
             while True:
                 # Get current Bayer frame and process it on GPU in main thread
                 with self.result_lock:
-                    if self.current_bayer_frame is None:
+                    if self.current_unprocessed_frame is None:
                         continue
-                    bayer_frame = self.current_bayer_frame.copy()
-                
+                    unprocessed_frame = self.current_unprocessed_frame.copy()
+
                 count += 1
                 t_start = time.perf_counter()
                 
                 # Process frame based on selected mode
                 if self.use_gpu_processing:
                     try:
-                        frame = self.gpu_preprocessor.process_frame(bayer_frame)
+                        frame = self.gpu_preprocessor.process_frame(unprocessed_frame)
                     except Exception as e:
                         print(f"\nGPU processing failed, falling back to CPU: {e}")
                         self.use_gpu_processing = False
-                        frame, _ = self.cpu_preprocessor.process_frame(bayer_frame)
+                        frame, _ = self.cpu_preprocessor.process_frame(unprocessed_frame)
                 else:
-                    frame, _ = self.cpu_preprocessor.process_frame(bayer_frame)
-                
+                    frame, _ = self.cpu_preprocessor.process_frame(unprocessed_frame)
+
                 t_process = time.perf_counter()
                 delta_t_sec = t_process - t_start
                 

@@ -59,7 +59,7 @@ class GPUPreprocessor:
         self.use_cpu_fallback = False
         
         # CPU fallback preprocessing instance
-        from ...processing.preprocessor import Preprocessor
+        from ...processing.cpu_preprocessor import Preprocessor
         self.cpu_preprocessor = Preprocessor(calibration_file)
         
         # Initialize OpenGL context immediately

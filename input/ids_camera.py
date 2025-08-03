@@ -12,6 +12,7 @@ import cv2
 import numpy as np
 from ids_peak import ids_peak
 from ids_peak import ids_peak, ids_peak_ipl_extension
+import config
 
 class IDS_Camera:
     """
@@ -119,7 +120,7 @@ class IDS_Camera:
             # Disable auto gain and set a fixed value
             self._nodemap_remote.FindNode("GainAuto").SetCurrentEntry("Off")
             gain_node = self._nodemap_remote.FindNode("Gain")
-            gain_node.SetValue(20.0)
+            gain_node.SetValue(10.0)
             print(f"- Gain: {gain_node.Value()} dB")
 
             self._nodemap_remote.FindNode("BlackLevel").SetValue(10.0)
@@ -200,50 +201,101 @@ class IDS_Camera:
             print("Acquisition loop is running.")
             
             # --- Main acquisition loop ---
-            last_timestamp_ns = 0
-            frame_counter = 0
-            start_time = time.time()
-
             while not self._stop_event.is_set():
+                buffer = None
                 try:
                     buffer = self._datastream.WaitForFinishedBuffer(1000)
                     
-                     # Check if the buffer has valid chunk data
-                    if not buffer.HasChunks():
-                        print("WARN: Received buffer without chunk data!")
-                        # Use buffer as is, but with empty metadata
-                        self._datastream.QueueBuffer(buffer)
+                    # --- Extract all data from the buffer first ---
+                    
+                    # 1. Extract basic metadata that requires chunks (essential data)
+                    try:
+                        metadata = {
+                            "frame_id": buffer.FrameID(),
+                            "timestamp_ns": buffer.Timestamp_ns(),
+                            "width": buffer.Width(),
+                            "height": buffer.Height(),
+                        }
+                    except Exception as e:
+                        # If basic chunk data access fails, this is likely an incomplete buffer
+                        print(f"WARN: Incomplete buffer received, dropping frame: {e}")
+                        if buffer is not None:
+                            self._datastream.QueueBuffer(buffer)
+                        continue
+                    
+                    # 2. Try to get offset data safely (optional data)
+                    try:
+                        # Check if the buffer has chunk data before accessing
+                        if buffer.HasChunkData(ids_peak.ChunkID_OffsetX):
+                            metadata["offset_x"] = buffer.XOffset()
+                        else:
+                            metadata["offset_x"] = config.CAM_X_OFFSET if hasattr(config, 'CAM_X_OFFSET') else 0
+                            
+                        if buffer.HasChunkData(ids_peak.ChunkID_OffsetY):
+                            metadata["offset_y"] = buffer.YOffset()
+                        else:
+                            metadata["offset_y"] = config.CAM_Y_OFFSET if hasattr(config, 'CAM_Y_OFFSET') else 0
+                    except Exception:
+                        # Fallback if access fails despite check
+                        metadata["offset_x"] = config.CAM_X_OFFSET if hasattr(config, 'CAM_X_OFFSET') else 0
+                        metadata["offset_y"] = config.CAM_Y_OFFSET if hasattr(config, 'CAM_Y_OFFSET') else 0
+
+                    # 3. Convert buffer to image using BufferToImage
+                    try:
+                        ipl_image = ids_peak_ipl_extension.BufferToImage(buffer)
+                        frame_data = ipl_image.get_numpy_1D().copy()
+                        frame_data = frame_data.reshape(metadata["height"], metadata["width"])
+                    except Exception as e:
+                        # If image conversion fails, this is also likely an incomplete buffer
+                        print(f"WARN: Image conversion failed, dropping frame: {e}")
+                        if buffer is not None:
+                            self._datastream.QueueBuffer(buffer)
                         continue
 
-                    # Create a numpy array from the buffer
-                    ipl_image = ids_peak_ipl_extension.BufferToImage(buffer)
-                    frame_data = ipl_image.get_numpy_1D().copy() # Copy data to be safe
-                    
-                    metadata = {
-                        "frame_id": buffer.FrameID(),
-                        "timestamp_ns": buffer.Timestamp_ns(),
-
-                        "width": buffer.Width(),
-                        "height": buffer.Height(),
-                        "offset_x": buffer.XOffset(),
-                        "offset_y": buffer.YOffset(),
-                    }
-
-                    # Re-queue the buffer for the next image
-                    self._datastream.QueueBuffer(buffer)
+                    # --- Now that we have everything, re-queue the buffer ---
+                    if buffer is not None:
+                        self._datastream.QueueBuffer(buffer)
+                        buffer = None  # Mark as queued
 
                     # --- Share data with the main thread ---
                     with self._lock:
-                        self._latest_frame = frame_data.reshape(ipl_image.Height(), ipl_image.Width())
+                        self._latest_frame = frame_data
                         self._metadata = metadata
 
                 except ids_peak.Exception as e:
-                    # Timeout is expected when waiting for the stop signal
-                    if e.error_code == ids_peak.IPL_ERROR_TIMEOUT:
+                    # Handle different types of IDS exceptions
+                    if hasattr(e, 'error_code') and e.error_code == ids_peak.IPL_ERROR_TIMEOUT:
                         continue
-                    print(f"Acquisition loop error: {e}")
-                    break
-        
+                    else:
+                        # Don't break on BAD_ACCESS errors - just drop the frame and continue
+                        print(f"WARN: Dropped frame due to IDS peak error: {e}")
+                        if buffer is not None:
+                            try:
+                                self._datastream.QueueBuffer(buffer)
+                            except Exception:
+                                pass
+                        continue
+                except Exception as e:
+                    # Only break on truly critical errors, not buffer access issues
+                    if "Buffer is currently not delivered" in str(e) or "BAD_ACCESS" in str(e):
+                        print(f"WARN: Buffer access issue, dropping frame: {e}")
+                        if buffer is not None:
+                            try:
+                                self._datastream.QueueBuffer(buffer)
+                            except Exception:
+                                pass
+                        continue
+                    else:
+                        print(f"CRITICAL: General acquisition error, stopping loop: {e}")
+                        break
+                finally:
+                    # Ensure buffer is always re-queued if still held
+                    if buffer is not None:
+                        try:
+                            self._datastream.QueueBuffer(buffer)
+                        except Exception:
+                            # Buffer might already be queued, ignore
+                            pass
         finally:
             # --- Cleanup in acquisition thread ---
             print("Acquisition loop is cleaning up.")

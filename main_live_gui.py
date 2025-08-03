@@ -11,7 +11,6 @@ from analysis.goal_scorer import GoalScorer
 from input.ids_camera import IDS_Camera
 from processing.cpu_preprocessor import CPUPreprocessor
 from processing.gpu_preprocessor import GPUPreprocessor
-from analysis.ball_speed import BallSpeed
 import config
 
 # ================== COMBINED TRACKER ==================
@@ -79,12 +78,6 @@ class CombinedTracker:
         # Processing mode control
         self.use_gpu_processing = True  # Start with GPU processing by default
         
-        # Ball speed calculator
-        self.timestamp_ns = 0
-        self.velocity = 0.0
-        self.px_to_cm_ratio = 0
-        self.ball_speed = BallSpeed()
-        
     def frame_reader_thread_method(self):
         """Frame reading thread - only reads raw Bayer frames"""
         read_duration = 0.0
@@ -94,8 +87,8 @@ class CombinedTracker:
             # Get frame from IDS camera
             bayer_frame, metadata = self.camera.get_frame()
             t_read = time.perf_counter()
-            # if metadata is not None:
-            #     print(f"\rOffsets: {metadata.get('offset_x', 0)}, {metadata.get('offset_y', 0)}", end="")
+            if metadata is not None:
+                print(f"\rOffsets: {metadata.get('offset_x', 0)}, {metadata.get('offset_y', 0)}", end="")
             if bayer_frame is None:
                 continue
 
@@ -115,10 +108,7 @@ class CombinedTracker:
         
     def ball_tracking_thread(self):
         """Thread for Ball-Tracking"""
-
-        count = 0
         while self.running:
-            count += 1
             try:
                 frame = self.frame_queue.get(timeout=1.0)
                 if frame is None:
@@ -139,12 +129,7 @@ class CombinedTracker:
             # Ball detection with field_bounds
             detection_result = self.ball_tracker.detect_ball(frame, field_bounds)
             self.ball_tracker.update_tracking(detection_result, field_bounds)
-
-
-            if count % 8 == 0:  # Every 10 frames
-                self.velocity = self.ball_speed.update(detection_result[0], self.timestamp_ns if self.timestamp_ns > 0 else time.perf_counter_ns(), self.px_to_cm_ratio)
-            #print(f"\rBall Velocity: {self.velocity:.2f} cm/s", end="")
-
+            
             # Goal scoring system update
             ball_position = detection_result[0] if detection_result[0] is not None else None
             self.goal_scorer.update_ball_tracking(
@@ -191,16 +176,8 @@ class CombinedTracker:
                     'calibration_mode': self.calibration_mode,
                     'calibration_requested': self.calibration_requested
                 }
-
-
-            self.field_width = (self.field_data['field_corners'][1][0] - self.field_data['field_corners'][0][0] 
-                                if self.field_data['field_corners'] is not None and len(self.field_data['field_corners']) >= 2 
-                                and self.field_data['field_corners'][0] is not None 
-                                and self.field_data['field_corners'][1] is not None 
-                                else 0)
-            self.px_to_cm_ratio = self.field_width / 118 if self.field_width != 0 else 0
-            # print(f"Field Width: {self.field_width} px, Pixel to Meter Ratio: {self.px_to_cm_ratio:.4f}")
-
+                
+    
     def draw_ball_visualization(self, frame):
         """Draws ball visualization"""
         with self.result_lock:
@@ -342,13 +319,11 @@ class CombinedTracker:
         self.frame_reader_thread = Thread(target=self.frame_reader_thread_method, daemon=True)
         self.frame_reader_thread.start()
         
-        if self.visualization_mode in [self.BALL_ONLY, self.COMBINED]:
-            self.ball_thread = Thread(target=self.ball_tracking_thread, daemon=True)
-            self.ball_thread.start()
+        self.ball_thread = Thread(target=self.ball_tracking_thread, daemon=True)
+        self.ball_thread.start()
             
-        if self.visualization_mode in [self.FIELD_ONLY, self.COMBINED]:
-            self.field_thread = Thread(target=self.field_tracking_thread, daemon=True)
-            self.field_thread.start()
+        self.field_thread = Thread(target=self.field_tracking_thread, daemon=True)
+        self.field_thread.start()
 
     def stop_threads(self):
         """Stops the tracking threads"""
@@ -458,7 +433,7 @@ class CombinedTracker:
                         max_time_ms = max(processing_times)
                         # Calculate theoretical max FPS based on preprocessing time
                         theoretical_fps = 1000.0 / avg_time_ms if avg_time_ms > 0 else 0
-                        #print(f"\rPreprocessing: {avg_time_ms:.2f}ms avg (min: {min_time_ms:.2f}, max: {max_time_ms:.2f}) | Theoretical FPS: {theoretical_fps:.1f} | Samples: {len(processing_times)}", end="")
+                        print(f"\rPreprocessing: {avg_time_ms:.2f}ms avg (min: {min_time_ms:.2f}, max: {max_time_ms:.2f}) | Theoretical FPS: {theoretical_fps:.1f} | Samples: {len(processing_times)}", end="")
                     last_stats_time = current_time
 
                 # Store processed frame for display
@@ -578,7 +553,6 @@ class CombinedTracker:
 # ================== MAIN PROGRAM ==================
 
 if __name__ == "__main__":
-    # Create and start combined tracker with IDS camera
-    # video_path and quse_webcam parameters are kept for compatibility but not used
-    tracker = CombinedTracker()
-    tracker.run()
+    import sys
+    from display.qt_gui import main as gui_main
+    sys.exit(gui_main())

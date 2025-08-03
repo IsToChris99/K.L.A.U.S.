@@ -7,6 +7,7 @@ import pyglet
 from pyglet.gl import *
 import time
 import config
+from .cpu_preprocessor import CPUPreprocessor
 
 # Disable PyOpenGL error checking for maximum speed.
 # For debugging, set to True: pyglet.options['debug_gl'] = True
@@ -24,7 +25,7 @@ class GPUPreprocessor:
     Output: Processed RGB frame (NumPy Array)
     """
 
-    def __init__(self, bayer_size = (1440, 1080), target_size=(720, 540), calibration_file=config.CAMERA_CALIBRATION_FILE):
+    def __init__(self, bayer_size = (config.CAM_WIDTH, config.CAM_HEIGHT), target_size=(config.DETECTION_WIDTH, config.DETECTION_HEIGHT), calibration_file=config.CAMERA_CALIBRATION_FILE):
         """
         Initializes the GPU processor.
 
@@ -65,8 +66,7 @@ class GPUPreprocessor:
         self.use_cpu_fallback = False
         
         # CPU fallback preprocessing instance
-        from .preprocessor import Preprocessor
-        self.cpu_preprocessor = Preprocessor(calibration_file)
+        self.cpu_preprocessor = CPUPreprocessor(calibration_file)
         
         # Initialize OpenGL context immediately
         self._initialize_gl_context()
@@ -131,8 +131,16 @@ class GPUPreprocessor:
             uniform sampler2D bayerTexture;
             uniform vec2 bayerSize;
             uniform vec2 targetSize;
+            uniform mat3 cameraMatrix;
+            uniform vec4 distCoeffs; // k1, k2, p1, p2
 
             vec3 demosaicPixel(vec2 bayerTexCoord) {
+                // Boundary check
+                if (bayerTexCoord.x < 0.0 || bayerTexCoord.x > 1.0 ||
+                    bayerTexCoord.y < 0.0 || bayerTexCoord.y > 1.0) {
+                    return vec3(0.0, 0.0, 0.0); // Return black for out-of-bounds
+                }
+                
                 // Get Bayer texture dimensions for pixel coordinate calculations
                 vec2 pixelCoord = bayerTexCoord * bayerSize;
                 
@@ -220,28 +228,59 @@ class GPUPreprocessor:
                 return rgb;
             }
 
-            vec3 demosaic_and_resize(vec2 targetTexCoord) {
-                // Calculate the corresponding pixel coordinate in the source bayer texture
-                vec2 srcPixelCoord = targetTexCoord * bayerSize - 0.5;
-                vec2 floorPixelCoord = floor(srcPixelCoord);
-                vec2 fractPixelCoord = fract(srcPixelCoord);
+            vec2 undistortCoordinate(vec2 targetPixelCoord) {
+                // Convert target pixel coordinates to normalized camera coordinates
+                float x = (targetPixelCoord.x - cameraMatrix[0][2]) / cameraMatrix[0][0];
+                float y = (targetPixelCoord.y - cameraMatrix[1][2]) / cameraMatrix[1][1];
 
-                // Demosaic the four surrounding bayer pixels to get their full RGB values
-                vec3 c00 = demosaicPixel((floorPixelCoord + vec2(0.5, 0.5)) / bayerSize);
-                vec3 c01 = demosaicPixel((floorPixelCoord + vec2(1.5, 0.5)) / bayerSize);
-                vec3 c10 = demosaicPixel((floorPixelCoord + vec2(0.5, 1.5)) / bayerSize);
-                vec3 c11 = demosaicPixel((floorPixelCoord + vec2(1.5, 1.5)) / bayerSize);
+                // Apply inverse distortion (find distorted coordinates from undistorted)
+                float r2 = x*x + y*y;
+                float r4 = r2*r2;
+                
+                // Radial distortion
+                float distortion = 1.0 + distCoeffs.x * r2 + distCoeffs.y * r4;
+                
+                // Tangential distortion
+                float dx = 2.0*distCoeffs.z*x*y + distCoeffs.w*(r2+2.0*x*x);
+                float dy = distCoeffs.z*(r2+2.0*y*y) + 2.0*distCoeffs.w*x*y;
+                
+                // Apply distortion
+                float x_dist = x * distortion + dx;
+                float y_dist = y * distortion + dy;
+                
+                // Project back to distorted pixel coordinates in bayer image
+                vec2 distorted_pixel = vec2(
+                    cameraMatrix[0][0] * x_dist + cameraMatrix[0][2],
+                    cameraMatrix[1][1] * y_dist + cameraMatrix[1][2]
+                );
 
-                // Bilinearly interpolate between the four RGB colors
-                vec3 top = mix(c00, c01, fractPixelCoord.x);
-                vec3 bottom = mix(c10, c11, fractPixelCoord.x);
-                return mix(top, bottom, fractPixelCoord.y);
+                // Convert to texture coordinates (normalized [0,1])
+                return distorted_pixel / bayerSize;
+            }
+
+            vec3 demosaic_undistort_and_resize(vec2 targetTexCoord) {
+                // Convert target texture coordinates to pixel coordinates
+                vec2 targetPixelCoord = targetTexCoord * targetSize;
+                
+                // Scale to bayer image size (this is the undistorted coordinate we want)
+                vec2 scaledPixelCoord = targetPixelCoord * (bayerSize / targetSize);
+                
+                // Find corresponding distorted coordinate in source bayer image
+                vec2 distortedTexCoord = undistortCoordinate(scaledPixelCoord);
+                
+                // Check bounds
+                if (distortedTexCoord.x < 0.0 || distortedTexCoord.x > 1.0 ||
+                    distortedTexCoord.y < 0.0 || distortedTexCoord.y > 1.0) {
+                    return vec3(0.0, 0.0, 0.0); // Black for out of bounds
+                }
+                
+                // Demosaic at the distorted coordinate
+                return demosaicPixel(distortedTexCoord);
             }
 
             void main() {
-                // The framebuffer is already set to target size, so TexCoords map directly.
-                // Call the combined demosaic and resize function.
-                vec3 rgb = demosaic_and_resize(TexCoords);
+                // Perform combined demosaicing, undistortion, and resizing
+                vec3 rgb = demosaic_undistort_and_resize(TexCoords);
                 FragColor = vec4(rgb, 1.0);
             }
         """
@@ -377,19 +416,11 @@ class GPUPreprocessor:
         """
         # Check if we should use CPU fallback
         if self.use_cpu_fallback:
-            # Convert Bayer to RGB using OpenCV
-            rgb_frame = cv2.cvtColor(bayer_frame, cv2.COLOR_BayerRG2RGB)
-            # Resize to target size
-            rgb_frame = cv2.resize(rgb_frame, (self.target_width, self.target_height))
-            # Apply undistortion using CPU preprocessor
-            return self.cpu_preprocessor.undistort_frame(rgb_frame)
-        
+            return self.cpu_preprocessor.process_frame(bayer_frame, target_size=(self.target_width, self.target_height))
+
         # Check if initialization is needed
         if not self.initialized:
-            return self.cpu_preprocessor.undistort_frame(
-                cv2.resize(cv2.cvtColor(bayer_frame, cv2.COLOR_BayerRG2RGB), 
-                          (self.target_width, self.target_height))
-            )
+            return self.cpu_preprocessor.process_frame(bayer_frame, target_size=(self.target_width, self.target_height))
             
         try:
             # --- GPU Operations (minimized OpenGL calls) ---
@@ -401,18 +432,36 @@ class GPUPreprocessor:
             glBindFramebuffer(GL_FRAMEBUFFER, self.fbo)
             self.shader_program.use()
             
-            # Set uniform variables for sizes
+            # Set uniform variables for sizes and calibration
             try:
                 # Get the actual OpenGL program ID from pyglet shader program
                 program_id = self.shader_program.id if hasattr(self.shader_program, 'id') else self.shader_program._program_id
                 
                 bayer_size_location = glGetUniformLocation(program_id, b"bayerSize")
                 target_size_location = glGetUniformLocation(program_id, b"targetSize")
+                camera_matrix_location = glGetUniformLocation(program_id, b"cameraMatrix")
+                dist_coeffs_location = glGetUniformLocation(program_id, b"distCoeffs")
                 
                 if bayer_size_location != -1:
                     glUniform2f(bayer_size_location, float(self.bayer_width), float(self.bayer_height))
                 if target_size_location != -1:
                     glUniform2f(target_size_location, float(self.target_width), float(self.target_height))
+                
+                # Send camera matrix as mat3
+                if camera_matrix_location != -1:
+                    camera_matrix_flat = self.camera_matrix.flatten().astype(np.float32)
+                    # Create proper ctypes pointer for the matrix data
+                    matrix_ptr = (GLfloat * len(camera_matrix_flat))(*camera_matrix_flat)
+                    glUniformMatrix3fv(camera_matrix_location, 1, GL_FALSE, matrix_ptr)
+                
+                # Send distortion coefficients as vec4 (k1, k2, p1, p2)
+                if dist_coeffs_location != -1:
+                    dist_coeffs_vec4 = np.zeros(4, dtype=np.float32)
+                    dist_coeffs_vec4[:min(4, len(self.dist_coeffs))] = self.dist_coeffs[:4]
+                    # Create proper ctypes pointer for the distortion coefficients
+                    dist_ptr = (GLfloat * 4)(*dist_coeffs_vec4)
+                    glUniform4fv(dist_coeffs_location, 1, dist_ptr)
+                    
             except Exception as e:
                 print(f"Warning: Could not set uniform variables: {e}")
             
@@ -443,10 +492,7 @@ class GPUPreprocessor:
                 else:
                     # Fallback to synchronous read
                     glBindBuffer(GL_PIXEL_PACK_BUFFER, 0)
-                    glReadPixels(0, 0, self.target_width, self.target_height, GL_BGR, GL_UNSIGNED_BYTE, self.output_buffer)
-                    buffer_data = np.frombuffer(self.output_buffer, dtype=np.uint8)
-                    frame_data = buffer_data.reshape((self.target_height, self.target_width, 3))
-                    self.output_frame[:] = frame_data  # No flipud needed - handled in shader
+                    return self.cpu_preprocessor.process_frame(bayer_frame, target_size=(self.target_width, self.target_height))
                 
                 glBindBuffer(GL_PIXEL_PACK_BUFFER, 0)
                 self.pbo_index = 1 - self.pbo_index  # Swap PBOs
@@ -462,10 +508,8 @@ class GPUPreprocessor:
         except Exception as e:
             print(f"GPU processing failed, falling back to CPU: {e}")
             self.use_cpu_fallback = True
-            # Fallback to CPU processing
-            rgb_frame = cv2.cvtColor(bayer_frame, cv2.COLOR_BayerRG2RGB)
-            rgb_frame = cv2.resize(rgb_frame, (self.target_width, self.target_height))
-            return self.cpu_preprocessor.undistort_frame(rgb_frame)
+            # Fallback to CPU processing using the dedicated process_frame method
+            return self.cpu_preprocessor.process_frame(bayer_frame, target_size=(self.target_width, self.target_height))
 
     def close(self):
         """Releases OpenGL resources and window."""
