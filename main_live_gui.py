@@ -130,7 +130,7 @@ class CombinedTracker:
                         self.current_bayer_frame = frame
                     
                     self.count += 1
-                    #time.sleep(1/30)  # 30 FPS für Video-Wiedergabe
+                    time.sleep(1/30)  # 30 FPS für Video-Wiedergabe
                 except Exception as e:
                     print(f"Fehler beim Lesen des Video-Frames: {e}")
                     time.sleep(0.1)
@@ -437,8 +437,30 @@ class KickerTrackingThread(QThread):
                 frame = None
                 try:
                     if self.tracker.use_video_file:
-                        # Bei Video-Dateien ist das Frame bereits RGB/BGR
-                        frame = bayer_frame
+                        # Bei Video-Dateien: Preprocessing auf BGR-Frame anwenden
+                        # Video-Frames sind bereits BGR, aber wir wenden trotzdem Preprocessing an
+                        if self.tracker.use_gpu_processing:
+                            try:
+                                # GPU-Preprocessing für Video-Frame
+                                if hasattr(self.tracker.gpu_preprocessor, 'process_video_frame'):
+                                    frame = self.tracker.gpu_preprocessor.process_video_frame(bayer_frame)
+                                else:
+                                    # Fallback: CPU-Preprocessing verwenden
+                                    frame, _ = self.tracker.cpu_preprocessor.process_video_frame(bayer_frame)
+                            except:
+                                # Fallback auf CPU
+                                if hasattr(self.tracker.cpu_preprocessor, 'process_video_frame'):
+                                    frame, _ = self.tracker.cpu_preprocessor.process_video_frame(bayer_frame)
+                                else:
+                                    # Letzter Fallback: Frame direkt verwenden
+                                    frame = cv2.resize(bayer_frame, (config.DETECTION_WIDTH, config.DETECTION_HEIGHT))
+                        else:
+                            # CPU-Preprocessing für Video-Frame
+                            if hasattr(self.tracker.cpu_preprocessor, 'process_video_frame'):
+                                frame, _ = self.tracker.cpu_preprocessor.process_video_frame(bayer_frame)
+                            else:
+                                # Fallback: Frame direkt resizen
+                                frame = cv2.resize(bayer_frame, (config.DETECTION_WIDTH, config.DETECTION_HEIGHT))
                     else:
                         # Bei Kamera: Bayer-Frame verarbeiten
                         if self.tracker.use_gpu_processing:
@@ -455,6 +477,10 @@ class KickerTrackingThread(QThread):
                         except Exception as cpu_e:
                             self.log_message.emit(f"CPU-Verarbeitung fehlgeschlagen: {cpu_e}")
                             continue  # Frame überspringen, nicht das ganze Tracking beenden
+                    elif self.tracker.use_video_file:
+                        # Bei Video-Fehler: Direkt das ursprüngliche Frame verwenden
+                        self.log_message.emit(f"Video-Preprocessing fehlgeschlagen, verwende Original-Frame: {e}")
+                        frame = bayer_frame
                     else:
                         self.log_message.emit(f"Frame-Verarbeitung fehlgeschlagen: {e}")
                         continue  # Frame überspringen, nicht das ganze Tracking beenden
@@ -502,8 +528,10 @@ class KickerTrackingThread(QThread):
                         self.frame_ready.emit(display_frame)
                         
                         # Score-Update
-                        score_text = f"{self.tracker.goal_scorer.score_left}:{self.tracker.goal_scorer.score_right}"
+                        score_text = f"{self.tracker.goal_scorer.get_score()['player1']}:{self.tracker.goal_scorer.get_score()['player2']}"
                         self.score_update.emit(score_text)
+                        
+                        
                     except Exception as vis_e:
                         self.log_message.emit(f"Visualisierungsfehler: {vis_e}")
                         # Weiter ohne Visualisierung

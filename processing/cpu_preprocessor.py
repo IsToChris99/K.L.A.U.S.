@@ -99,12 +99,31 @@ class CPUPreprocessor:
             'optimization_active': self.map1 is not None
         }
     
-    def process_frame(self, bayer_frame):
+
+    def process_frame(self, bayer_frame, target_size=None):
         """Processes a single Bayer frame through the entire pipeline.
         Returns the undistorted RGB frame in resized and original resolution."""
+        # Use provided target_size or default to instance target size
+        target_width = target_size[0] if target_size else self.target_width
+        target_height = target_size[1] if target_size else self.target_height
+        
         rgb_frame = cv2.cvtColor(bayer_frame, cv2.COLOR_BayerRG2RGB)
         # Apply undistortion
         undist_frame = self.undistort_frame(rgb_frame)
         # Resize to target size
-        resized_frame = cv2.resize(undist_frame, (self.target_width, self.target_height))
+        resized_frame = cv2.resize(undist_frame, (target_width, target_height))
+        return resized_frame, undist_frame
+    
+    def process_video_frame(self, bgr_frame, target_size=None):
+        """Processes a single BGR video frame through the preprocessing pipeline.
+        Video frames are already in BGR format, so no Bayer conversion needed.
+        Returns the undistorted and resized frame."""
+        # Use provided target_size or default to instance target size
+        target_width = target_size[0] if target_size else self.target_width
+        target_height = target_size[1] if target_size else self.target_height
+        
+        # Apply undistortion to BGR frame
+        undist_frame = self.undistort_frame(bgr_frame)
+        # Resize to target size
+        resized_frame = cv2.resize(undist_frame, (target_width, target_height))
         return resized_frame, undist_frame

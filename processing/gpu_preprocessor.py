@@ -511,6 +511,20 @@ class GPUPreprocessor:
             # Fallback to CPU processing using the dedicated process_frame method
             return self.cpu_preprocessor.process_frame(bayer_frame, target_size=(self.target_width, self.target_height))
 
+
+    def process_video_frame(self, bgr_frame):
+        """
+        Processes a single BGR video frame (no Bayer conversion needed).
+        For GPU implementation, this falls back to CPU since we don't have
+        a specific GPU shader for non-Bayer frames yet.
+        
+        :param bgr_frame: NumPy Array (height, width, 3) BGR video frame.
+        :return: Processed NumPy Array (target_height, target_width, 3) in BGR format.
+        """
+        # For now, always use CPU processing for video frames
+        # In the future, this could be optimized with a specific GPU shader
+        return self.cpu_preprocessor.process_video_frame(bgr_frame)
+    
     def close(self):
         """Releases OpenGL resources and window."""
         if self.window:
