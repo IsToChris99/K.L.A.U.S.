@@ -271,22 +271,22 @@ class CombinedTracker:
         for i, goal in enumerate(field_data_copy['goals']):
             # Zeichne die ausgerichtete Tor-Kontur wenn vorhanden
             if goal.get('contour') is not None:
-                cv2.drawContours(frame, [goal['contour']], -1, COLOR_GOALS, 2)
+                cv2.drawContours(frame, [goal['contour']], -1, config.COLOR_GOALS, 2)
             else:
                 # Fallback auf rechteckige Bounds
                 x, y, w, h = goal['bounds']
-                cv2.rectangle(frame, (x, y), (x+w, y+h), COLOR_GOALS, 2)
+                cv2.rectangle(frame, (x, y), (x+w, y+h), config.COLOR_GOALS, 2)
             
             # Zeichne Tor-Center und Label
             center_x, center_y = goal['center']
-            cv2.circle(frame, (center_x, center_y), 5, COLOR_GOALS, -1)
+            cv2.circle(frame, (center_x, center_y), 5, config.COLOR_GOALS, -1)
             cv2.putText(frame, f"Goal {i+1} ({goal['type']})", (center_x-30, center_y-15),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, COLOR_GOALS, 2)
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, config.COLOR_GOALS, 2)
 
         # Field limits with corners
         if (field_data_copy['calibrated'] and 
             field_data_copy.get('field_corners') is not None):
-            cv2.drawContours(frame, [field_data_copy['field_corners']], -1, COLOR_FIELD_BOUNDS, 2)
+            cv2.drawContours(frame, [field_data_copy['field_corners']], -1, config.COLOR_FIELD_BOUNDS, 2)
 
 
         # Calibration info
