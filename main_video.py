@@ -35,13 +35,13 @@ class CombinedTracker:
         self.field_detector = FieldDetector()
         self.goal_scorer = GoalScorer()
         
-        # Try to load saved calibration
-        if not self.field_detector.load_calibration():
-            print("No calibration file found. Perform manual calibration...")
+        # # Try to load saved calibration
+        # if not self.field_detector.load_calibration():
+        #     print("No calibration file found. Perform manual calibration...")
         
-        # Calibration mode - only activate on key press
-        self.calibration_mode = False
-        self.calibration_requested = False
+        # Calibration mode - automatically activate for continuous calibration
+        self.calibration_mode = True
+        self.calibration_requested = True
 
         self.stream = VideoStream(video_path)
         
@@ -120,6 +120,7 @@ class CombinedTracker:
         
     def ball_tracking_thread(self):
         """Thread for Ball-Tracking"""
+        local_frame_count = 0
         while self.running:
             try:
                 frame = self.frame_queue.get(timeout=1.0)
@@ -128,6 +129,7 @@ class CombinedTracker:
             except Empty:
                 continue
                 
+            local_frame_count += 1
             
             # Field corners for restricted ball search
             field_corners = None
@@ -157,9 +159,7 @@ class CombinedTracker:
                     'smoothed_pts': list(self.ball_tracker.smoothed_pts),
                     'missing_counter': self.ball_tracker.missing_counter
                 }
-                
-            
-            
+
     def field_tracking_thread(self):
         """Thread for Field-Tracking"""
         while self.running:
@@ -170,11 +170,16 @@ class CombinedTracker:
             except Empty:
                 continue
             
-            # Use FieldDetector's calibration logic
-            if (self.calibration_requested and 
-                self.calibration_mode and 
-                not self.field_detector.calibrated):
+            # Use FieldDetector's calibration logic - try to calibrate every frame
+            if self.calibration_mode:
+                before_calibration = time.perf_counter_ns()
                 self.field_detector.calibrate(frame)
+                
+                after_calibration = time.perf_counter_ns()
+                calibration_time = (after_calibration - before_calibration) / 1e9
+                # Only print calibration time occasionally to avoid spam
+                if self.field_detector.stable_detection_counter % 50 == 0:
+                    print(f'\rCalibration attempt took: {calibration_time:.4f} seconds, stable: {self.field_detector.stable_detection_counter}', end='')
             
             # Store current field data
             with self.result_lock:
@@ -203,6 +208,7 @@ class CombinedTracker:
         # Draw ball info
         if detection[0] is not None:
             center, radius, confidence, velocity = detection
+            center_int = (int(center[0]), int(center[1]))
 
             # Color selection based on confidence
             if confidence >= 0.8:
@@ -212,17 +218,17 @@ class CombinedTracker:
             else:
                 color = COLOR_BALL_LOW_CONFIDENCE   # Orange
                 
-            cv2.circle(frame, center, 3, color, -1)
-            cv2.circle(frame, center, int(radius), color, 2)
+            cv2.circle(frame, center_int, 3, color, -1)
+            cv2.circle(frame, center_int, int(radius), color, 2)
             
-            cv2.putText(frame, f"R: {radius:.1f}", (center[0] + 15, center[1] - 15), 
+            cv2.putText(frame, f"R: {radius:.1f}", (int(center[0]) + 15, int(center[1]) - 15), 
                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
-            cv2.putText(frame, f"Conf: {confidence:.2f}", (center[0] + 15, center[1] + 5), 
+            cv2.putText(frame, f"Conf: {confidence:.2f}", (int(center[0]) + 15, int(center[1]) + 5), 
                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1)
 
             # Show Kalman velocity
             if velocity is not None:
-                cv2.arrowedLine(frame, center,
+                cv2.arrowedLine(frame, center_int,
                             (int(center[0] + velocity[0]*30), int(center[1] + velocity[1]*30)),
                             (255, 0, 255), 2)
         
@@ -253,8 +259,9 @@ class CombinedTracker:
         # Field corners
         if field_data_copy['field_corners'] is not None:
             for i, corner in enumerate(field_data_copy['field_corners']):
-                cv2.circle(frame, tuple(corner), 8, COLOR_FIELD_CORNERS, -1)
-                cv2.putText(frame, f"{i+1}", (corner[0]+10, corner[1]-10),
+                corner_int = (int(corner[0]), int(corner[1]))
+                cv2.circle(frame, corner_int, 8, COLOR_FIELD_CORNERS, -1)
+                cv2.putText(frame, f"{i+1}", (int(corner[0])+10, int(corner[1])-10),
                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, COLOR_FIELD_CORNERS, 2)
 
         # Goals
@@ -265,33 +272,35 @@ class CombinedTracker:
             else:
                 # Fallback auf rechteckige Bounds
                 x, y, w, h = goal['bounds']
-                cv2.rectangle(frame, (x, y), (x+w, y+h), COLOR_GOALS, 2)
+                cv2.rectangle(frame, (int(x), int(y)), (int(x+w), int(y+h)), COLOR_GOALS, 2)
             
             # Zeichne Tor-Center und Label
             center_x, center_y = goal['center']
-            cv2.circle(frame, (center_x, center_y), 5, COLOR_GOALS, -1)
-            cv2.putText(frame, f"Goal {i+1} ({goal['type']})", (center_x-30, center_y-15),
+            center_int = (int(center_x), int(center_y))
+            cv2.circle(frame, center_int, 5, COLOR_GOALS, -1)
+            cv2.putText(frame, f"Goal {i+1} ({goal['type']})", (int(center_x)-30, int(center_y)-15),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, COLOR_GOALS, 2)
 
         # Field limits with corners
         if (field_data_copy['calibrated'] and 
             field_data_copy.get('field_corners') is not None):
-            cv2.drawContours(frame, [field_data_copy['field_corners']], -1, COLOR_FIELD_BOUNDS, 2)
+            field_corners_int = np.array(field_data_copy['field_corners'], dtype=np.int32)
+            cv2.drawContours(frame, [field_corners_int], -1, COLOR_FIELD_BOUNDS, 2)
 
 
-        # Calibration info
-        if (field_data_copy['calibration_requested'] and 
-            field_data_copy['calibration_mode'] and 
-            not field_data_copy['calibrated']):
-            progress = min(field_data_copy['stable_counter'] / 30, 1.0)
-            progress_width = int(300 * progress)
+        # # Calibration info
+        # if (field_data_copy['calibration_requested'] and 
+        #     field_data_copy['calibration_mode'] and 
+        #     not field_data_copy['calibrated']):
+        #     progress = min(field_data_copy['stable_counter'] / 30, 1.0)
+        #     progress_width = int(300 * progress)
             
-            cv2.rectangle(frame, (10, 130), (310, 160), (50, 50, 50), -1)
-            cv2.rectangle(frame, (10, 130), (10 + progress_width, 160), (0, 255, 0), -1)
-            cv2.rectangle(frame, (10, 130), (310, 160), (255, 255, 255), 2)
+        #     cv2.rectangle(frame, (10, 130), (310, 160), (50, 50, 50), -1)
+        #     cv2.rectangle(frame, (10, 130), (10 + progress_width, 160), (0, 255, 0), -1)
+        #     cv2.rectangle(frame, (10, 130), (310, 160), (255, 255, 255), 2)
             
-            cv2.putText(frame, f"Calibration: {progress*100:.1f}%", (10, 125),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+        #     cv2.putText(frame, f"Calibration: {progress*100:.1f}%", (10, 125),
+        #                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
     
     def draw_status_info(self, frame):
         """Draws status information"""
@@ -313,8 +322,19 @@ class CombinedTracker:
         cv2.putText(frame, "Camera: IDS Live Stream", (10, 60),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
         
+        # Field calibration status
+        with self.result_lock:
+            field_data_copy = self.field_data.copy() if self.field_data else None
+        
+        if field_data_copy and field_data_copy['calibrated']:
+            cv2.putText(frame, "Field: Calibrated ✓", (10, 150),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+        else:
+            cv2.putText(frame, "Field: Calibrating automatically...", (10, 150),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 165, 0), 2)
+        
         # Show key commands
-        cv2.putText(frame, "Keys: 1=Ball, 2=Field, 3=Both, r=Calibration, s=Screenshot, g=Reset Score, h=Help", 
+        cv2.putText(frame, "Keys: 1=Ball, 2=Field, 3=Both, s=Screenshot, g=Reset Score, h=Help", 
                    (10, frame.shape[0] - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1)
     
     def start_threads(self):
@@ -359,10 +379,10 @@ class CombinedTracker:
         print("  '1' - Show only ball tracking")
         print("  '2' - Show only field tracking")
         print("  '3' - Combined view (default)")
-        print("  'r' - Start/recalibrate field calibration")
         print("  's' - Save screenshot (with ball curve if available)")
         print("  'c' - Show camera calibration info")
         print("  'h' - Show help")
+        print("  Note: Field calibration runs automatically")
         print("=" * 60)
 
         self.start_threads()
@@ -425,12 +445,6 @@ class CombinedTracker:
                     self.stop_threads()
                     self.visualization_mode = self.COMBINED
                     self.start_threads()
-                elif key == ord('r'):
-                    print("Calibrate field")
-                    self.field_detector.calibrated = False
-                    self.field_detector.stable_detection_counter = 0
-                    self.calibration_mode = True
-                    self.calibration_requested = True
                 elif key == ord('s'):
                     # Screenshot with ball curve
                     # Use the current processing frame for screenshot (not display frame)
@@ -455,11 +469,11 @@ class CombinedTracker:
                     print("  '1' - Show ball tracking only")
                     print("  '2' - Show field tracking only")
                     print("  '3' - Show combined view")
-                    print("  'r' - Start/recalibrate field calibration")
                     print("  's' - Save screenshot (with ball curve if available)")
                     print("  'c' - Show camera calibration info")
                     print("  'g' - Reset score to 0-0")
                     print("  'h' - Show help")
+                    print("  Note: Field calibration runs automatically")
                     print("=" * 60)
 
                 elif key == ord('g'):

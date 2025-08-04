@@ -3,6 +3,7 @@ import numpy as np
 import json
 import os
 import time
+from collections import deque
 from config import (
     GOAL_LOWER, GOAL_UPPER,
     FIELD_MIN_AREA, FIELD_STABILITY_FRAMES,
@@ -41,6 +42,9 @@ class FieldDetector:
         
         # Calibration data save/load
         self.calibration_file = FIELD_CALIBRATION_FILE
+
+        # Queue für Eckpunkt-Stabilisierung (maximal 5 Frames)
+        self.corner_queue = deque(maxlen=20)
         
     def detect_field(self, frame):
         """Detects field and returns contours"""
@@ -86,13 +90,13 @@ class FieldDetector:
         bottom_left = white_pixels_xy[bottom_left_idx]
         
         # Die vier Eckpunkte als field_corners setzen
-        self.field_corners = np.array([top_left, top_right, bottom_right, bottom_left])
+        field_corners = np.array([top_left, top_right, bottom_right, bottom_left])
 
-        # # Debug: Zeige die Maske an
-        # cv2.imshow('Field Mask Debug', marker_mask)
-        # cv2.waitKey(1)  # Kurzes Warten für die Anzeige
+        # Debug: Zeige die Maske an
+        cv2.imshow('Field Mask Debug', marker_mask)
+        cv2.waitKey(1)  # Kurzes Warten für die Anzeige
         
-        return self.field_corners
+        return field_corners
     
     def detect_goals(self, frame, field_corners):
         """Detects goals positioned at the center of the shorter sides of the field"""
@@ -193,68 +197,6 @@ class FieldDetector:
                     'area': 80 * HEIGHT_RATIO * 20 * WIDTH_RATIO,
                     'contour': right_contour
                 })
-        
-
-
-        # """Detects goals based on bright areas at the field edges"""
-        # if field_contour is None:
-        #     return []
-        
-        # hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-        
-        # goal_mask = cv2.inRange(hsv, self.goal_lower, self.goal_upper)
-        
-        # field_mask = np.zeros(frame.shape[:2], dtype=np.uint8)
-        # cv2.fillPoly(field_mask, [field_contour], 255)
-        
-        # kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (30, 30))
-        # extended_field_mask = cv2.dilate(field_mask, kernel)
-        
-        # goal_search_mask = cv2.bitwise_and(goal_mask, extended_field_mask)
-        # goal_search_mask = cv2.bitwise_xor(goal_search_mask, 
-        #                                   cv2.bitwise_and(goal_search_mask, field_mask))
-        
-        # goal_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, GOAL_KERNEL_SIZE)
-        # goal_search_mask = cv2.morphologyEx(goal_search_mask, cv2.MORPH_CLOSE, goal_kernel)
-        
-        # # Additional thin filter for better goal detection
-        # thin_filter_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, GOAL_THIN_FILTER_KERNEL_SIZE)
-        # goal_search_mask = cv2.morphologyEx(goal_search_mask, cv2.MORPH_OPEN, thin_filter_kernel)
-        # goal_search_mask = cv2.morphologyEx(goal_search_mask, cv2.MORPH_CLOSE, goal_kernel)
-        
-        # goal_contours, _ = cv2.findContours(goal_search_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        
-        # goals = []
-        # min_goal_area = MIN_GOAL_AREA
-        
-        # for contour in goal_contours:
-        #     area = cv2.contourArea(contour)
-        #     if area > min_goal_area:
-        #         # Bounding box for goal contour
-        #         x, y, w, h = cv2.boundingRect(contour)
-
-        #         field_bounds = cv2.boundingRect(field_contour)
-        #         fx, fy, fw, fh = field_bounds
-                
-        #         # Classify goal type based on position
-        #         goal_type = "unknown"
-        #         if y + h < fy + fh * 0.2:
-        #             goal_type = "top"
-        #         elif y > fy + fh * 0.8:
-        #             goal_type = "bottom"
-        #         elif x + w < fx + fw * 0.2:
-        #             goal_type = "left"
-        #         elif x > fx + fw * 0.8:
-        #             goal_type = "right"
-                
-        #         goals.append({
-        #             'contour': contour,
-        #             'bounds': (x, y, w, h),
-        #             'center': (x + w//2, y + h//2),
-        #             'area': area,
-        #             'type': goal_type
-        #         })
-        
         return goals
     
     def calculate_field_metrics(self, field_corners, frame):
@@ -312,99 +254,32 @@ class FieldDetector:
 
         if field_corners is not None:
 
-            self.stable_detection_counter += 1
+            if len(self.corner_queue) < 5:
+                self.corner_queue.append(field_corners)
+                return False
             
-            if self.stable_detection_counter >= self.field_stability_frames:
-                metrics = self.calculate_field_metrics(field_corners, frame)
-                
-                goals = self.detect_goals(frame, metrics['corners'])
-
-                self.field_corners = field_corners
-                self.goals = goals
-                self.calibrated = True
-                
-                self.save_calibration()
-                
-                # print(f"Spielfeld kalibriert! Erkannte Tore: {len(goals)}")
-                
-                return True
-        else:
-            self.stable_detection_counter = max(0, self.stable_detection_counter - 2)
-        
-        return False
-    
-    def save_calibration(self):
-        """Saves calibration data"""
-        if not self.calibrated:
-            return
-        
-        # Helper function to convert numpy types to Python native types
-        def convert_to_native(obj):
-            if isinstance(obj, np.integer):
-                return int(obj)
-            elif isinstance(obj, np.floating):
-                return float(obj)
-            elif isinstance(obj, np.ndarray):
-                return obj.tolist()
-            elif isinstance(obj, (list, tuple)):
-                return [convert_to_native(item) for item in obj]
             else:
-                return obj
-        
-        calibration_data = {
-            'field_corners': convert_to_native(self.field_corners),
-            'goals': [{
-                'bounds': convert_to_native(goal['bounds']),
-                'center': convert_to_native(goal['center']),
-                'area': convert_to_native(goal['area']),
-                'type': goal['type']
-            } for goal in self.goals],
-            'field_transform_matrix': convert_to_native(self.field_transform_matrix),
-            'perspective_transform_matrix': convert_to_native(getattr(self, 'perspective_transform_matrix', None))
-        }
-        
-        try:
-            with open(self.calibration_file, 'w') as f:
-                json.dump(calibration_data, f, indent=2)
-            print(f"Calibration saved to {self.calibration_file}")
-        except Exception as e:
-            print(f"Error saving calibration: {e}")
-    
-    def load_calibration(self):
-        """Loads saved calibration data"""
-        if not os.path.exists(self.calibration_file):
-            return False
-        
-        try:
-            with open(self.calibration_file, 'r') as f:
-                data = json.load(f)
-            
-            # Load field corners
-            self.field_corners = np.array(data['field_corners']) if data.get('field_corners') else None
-            
-            # Load transformation matrices
-            self.field_transform_matrix = np.array(data['field_transform_matrix']) if data.get('field_transform_matrix') else None
-            
-            # Load perspective transform matrix (for backward compatibility)
-            transform_key = 'perspective_transform_matrix' if 'perspective_transform_matrix' in data else 'transform_matrix'
-            if data.get(transform_key):
-                self.perspective_transform_matrix = np.array(data[transform_key])
-            
-            # Load goals
-            self.goals = []
-            for goal_data in data.get('goals', []):
-                self.goals.append({
-                    'bounds': tuple(goal_data['bounds']),
-                    'center': tuple(goal_data['center']),
-                    'area': goal_data['area'],
-                    'type': goal_data['type'],
-                    'contour': None
-                })
-            
+                current_avg = np.mean(self.corner_queue, axis=0)
+                
+                max_deviation = 0
+                for i in range(4):  # For each corner
+                    deviation = np.linalg.norm(field_corners[i] - current_avg[i])
+                    max_deviation = max(max_deviation, deviation)
+                
+                if (max_deviation > 20 or max_deviation <= 3) and self.calibrated:
+                    print({max_deviation})
+                    return True
+                
+                self.corner_queue.append(field_corners)
+                
+            avg_field_corners = np.median(self.corner_queue, axis=0)
+
+            metrics = self.calculate_field_metrics(avg_field_corners, frame)
+            goals = self.detect_goals(frame, metrics['corners'])
+
+            self.field_corners = avg_field_corners
+            self.goals = goals
             self.calibrated = True
-            # print(f"Calibration loaded from {self.calibration_file}")
+
             return True
-            
-        except Exception as e:
-            print(f"Error loading calibration: {e}")
-            return False
+        return False
