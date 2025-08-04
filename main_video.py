@@ -8,6 +8,7 @@ from queue import Queue, LifoQueue, Empty
 from detection.ball_detector import BallDetector
 from detection.field_detector_markers import FieldDetector
 from analysis.goal_scorer import GoalScorer
+from analysis.heatmap_generator import create_heatmap_from_points
 from input.videostream import VideoStream
 from processing.cpu_preprocessor import CPUPreprocessor
 from config import (
@@ -473,6 +474,19 @@ class CombinedTracker:
             self.stop_threads()
             cv2.destroyAllWindows()
             
+            print("\nVideo processing finished. Preparing heatmap data...")
+            
+            if self.ball_tracker.all_ball_positions:
+                heatmap_dimensions = (DETECTION_WIDTH, DETECTION_HEIGHT)
+                create_heatmap_from_points(
+                    points=self.ball_tracker.all_ball_positions,
+                    dimensions=heatmap_dimensions,
+                    output_path="results/video_heatmap.png"
+                )
+            else:
+                print("No ball positions were recorded, skipping heatmap generation.")
+      
+            cv2.destroyAllWindows()
             print(f"\nCombined Tracker finished.")
 
 

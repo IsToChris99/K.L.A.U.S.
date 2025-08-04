@@ -416,11 +416,15 @@ class GPUPreprocessor:
         """
         # Check if we should use CPU fallback
         if self.use_cpu_fallback:
-            return self.cpu_preprocessor.process_frame(bayer_frame, target_size=(self.target_width, self.target_height))
+            return self.cpu_preprocessor.process_frame(bayer_frame)
 
         # Check if initialization is needed
         if not self.initialized:
-            return self.cpu_preprocessor.process_frame(bayer_frame, target_size=(self.target_width, self.target_height))
+            return self.cpu_preprocessor.process_frame(bayer_frame)
+            
+        # Check if input is a color frame (video) - use CPU fallback for now
+        if len(bayer_frame.shape) == 3 and bayer_frame.shape[2] == 3:
+            return self.cpu_preprocessor.process_frame(bayer_frame)
             
         try:
             # --- GPU Operations (minimized OpenGL calls) ---
@@ -492,7 +496,7 @@ class GPUPreprocessor:
                 else:
                     # Fallback to synchronous read
                     glBindBuffer(GL_PIXEL_PACK_BUFFER, 0)
-                    return self.cpu_preprocessor.process_frame(bayer_frame, target_size=(self.target_width, self.target_height))
+                    return self.cpu_preprocessor.process_frame(bayer_frame)
                 
                 glBindBuffer(GL_PIXEL_PACK_BUFFER, 0)
                 self.pbo_index = 1 - self.pbo_index  # Swap PBOs
@@ -509,7 +513,7 @@ class GPUPreprocessor:
             print(f"GPU processing failed, falling back to CPU: {e}")
             self.use_cpu_fallback = True
             # Fallback to CPU processing using the dedicated process_frame method
-            return self.cpu_preprocessor.process_frame(bayer_frame, target_size=(self.target_width, self.target_height))
+            return self.cpu_preprocessor.process_frame(bayer_frame)
 
     def close(self):
         """Releases OpenGL resources and window."""
