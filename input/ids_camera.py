@@ -10,9 +10,9 @@ from typing import Dict, Optional, Tuple
 
 import cv2
 import numpy as np
-from ids_peak import ids_peak
 from ids_peak import ids_peak, ids_peak_ipl_extension
 import config
+
 
 class IDS_Camera:
     """
@@ -28,25 +28,35 @@ class IDS_Camera:
         Initializes the camera. It finds the first available IDS camera,
         opens it, and configures some basic default settings.
         """
+        # Core camera objects
         self._device = None
         self._nodemap_remote = None
         self._datastream = None
         
+        # Threading
         self._acquisition_thread: Optional[threading.Thread] = None
         self._lock = threading.Lock()
         self._stop_event = threading.Event()
 
-        # Frame and metadata that are shared between threads
+        # Shared data between threads
         self._latest_frame: Optional[np.ndarray] = None
         self._metadata: Dict[str, any] = {}
+        
+        # Frame tracking for dropped frame detection
+        self._last_frame_id = -1
+        self._total_dropped_frames = 0
 
+        self._initialize_camera()
+
+    def _initialize_camera(self):
+        """Initialize camera connection and basic setup."""
         try:
-            # Initialize the library
             ids_peak.Library.Initialize()
             
-            # Find and open the first available camera
+            # Find and open camera
             device_manager = ids_peak.DeviceManager.Instance()
             device_manager.Update()
+            
             if device_manager.Devices().empty():
                 raise RuntimeError("No IDS camera found.")
             
@@ -54,269 +64,276 @@ class IDS_Camera:
             self._nodemap_remote = self._device.RemoteDevice().NodeMaps()[0]
             
             print("Camera connection established.")
+            
             self._configure_chunks() 
             self._apply_initial_settings()
 
         except Exception as e:
             print(f"ERROR: Failed to initialize camera: {e}")
-            self.stop() # Ensure cleanup on initialization failure
+            self.stop()
             raise
 
     def _configure_chunks(self):
-        """
-        Enables Chunk Mode and selects all desired metadata chunks.
-        This ensures that metadata is perfectly synchronized with each frame.
-        """
+        """Enable Chunk Mode and configure metadata chunks."""
         print("Configuring camera chunks...")
-        try:
-            # Activate Chunk Mode
-            self._nodemap_remote.FindNode("ChunkModeActive").SetValue(True)
+        
+        # Enable chunk mode
+        self._nodemap_remote.FindNode("ChunkModeActive").SetValue(True)
 
-            # A list of all chunks we want the camera to send
-            desired_chunks = [
-                # Identification and timing
-                "CounterValue",             # Frame ID counter
-                "Timestamp",                # Hardware timestamp of the capture
-                # Image geometry
-                "Width",
-                "Height",
-                "OffsetX",
-                "OffsetY",
-            ]
-            
-            print("Enabling supported chunks...")
-            for chunk_name in desired_chunks:
-                try:
-                    chunk_selector = self._nodemap_remote.FindNode("ChunkSelector")
-                    chunk_selector.SetCurrentEntry(chunk_name)
-                    self._nodemap_remote.FindNode("ChunkEnable").SetValue(True)
-                    print(f"- Enabled: {chunk_name}")
-                except ids_peak.Exception:
-                    print(f"- WARN: Chunk '{chunk_name}' is not supported, skipping.")
+        # Configure chunks we need
+        chunk_configs = [
+            ("CounterValue", "Counter0"),  # Frame ID with counter selector
+            ("Timestamp", None),           # Hardware timestamp
+            ("Width", None),
+            ("Height", None),
+            ("OffsetX", None),
+            ("OffsetY", None),
+            ("Gain", None),
+            ("ExposureTime", None),
+        ]
+        
+        for chunk_name, selector_value in chunk_configs:
+            try:
+                chunk_selector = self._nodemap_remote.FindNode("ChunkSelector")
+                chunk_selector.SetCurrentEntry(chunk_name)
+                self._nodemap_remote.FindNode("ChunkEnable").SetValue(True)
+                
+                if selector_value:  # For CounterValue
+                    self._nodemap_remote.FindNode("ChunkCounterSelector").SetCurrentEntry(selector_value)
+                
+                print(f"- Enabled: {chunk_name}")
+            except ids_peak.Exception:
+                print(f"- WARN: Chunk '{chunk_name}' not supported, skipping.")
 
-        except Exception as e:
-            print(f"ERROR: Failed to configure chunks: {e}")
-            # Disable Chunk Mode if it fails
-            self._nodemap_remote.FindNode("ChunkModeActive").SetValue(False)
+        # Configure frame counter
+        self._nodemap_remote.FindNode("CounterSelector").SetCurrentEntry("Counter0")
+        self._nodemap_remote.FindNode("CounterEventSource").SetCurrentEntry("FrameEnd")
+        self._nodemap_remote.FindNode("CounterDuration").SetValue(0)
+        self._nodemap_remote.FindNode("CounterReset").Execute()
+        self._nodemap_remote.FindNode("CounterTriggerSource").SetCurrentEntry("AcquisitionStart")
 
     def _apply_initial_settings(self):
-        """Applies a set of default camera settings."""
+        """Apply default camera settings for optimal performance."""
         print("Applying initial camera settings...")
-        try:
-            # For optimal performance, we use a Bayer format and convert later
-            self._nodemap_remote.FindNode("PixelFormat").SetCurrentEntry("BayerRG8")
-            
-            # Set a high framerate
-            self._nodemap_remote.FindNode("AcquisitionFrameRateTargetEnable").SetValue(True)
-            fps_node = self._nodemap_remote.FindNode("AcquisitionFrameRateTarget")
-            fps_node.SetValue(250.0)
-            print(f"- AcquisitionFrameRate: {fps_node.Value()} fps")
-
-            # Set a reasonable exposure time
-            exp_time = self._nodemap_remote.FindNode("ExposureTime")
-            exp_time.SetValue(2000.0)
-            print(f"- ExposureTime: {exp_time.Value()} µs")
-
-            # Disable auto gain and set a fixed value
-            self._nodemap_remote.FindNode("GainAuto").SetCurrentEntry("Off")
-            gain_node = self._nodemap_remote.FindNode("Gain")
-            gain_node.SetValue(10.0)
-            print(f"- Gain: {gain_node.Value()} dB")
-
-            self._nodemap_remote.FindNode("BlackLevel").SetValue(10.0)
-            print(f"BlackLevel eingestellt auf: {self._nodemap_remote.FindNode('BlackLevel').Value()}")
-
-        except Exception as e:
-            print(f"WARNING: Could not apply all initial settings: {e}")
+        
+        settings = [
+            ("PixelFormat", "BayerRG8", "SetCurrentEntry"),
+            ("AcquisitionFrameRateTargetEnable", True, "SetValue"),
+            ("AcquisitionFrameRateTarget", 250.0, "SetValue"),
+            ("ExposureTime", 2000.0, "SetValue"),
+            ("GainAuto", "Off", "SetCurrentEntry"),
+            ("Gain", 10.0, "SetValue"),
+            ("BlackLevel", 10.0, "SetValue"),
+        ]
+        
+        for node_name, value, method in settings:
+            try:
+                node = self._nodemap_remote.FindNode(node_name)
+                getattr(node, method)(value)
+                
+                # Print current value for verification
+                if method == "SetValue":
+                    print(f"- {node_name}: {node.Value()}")
+                else:
+                    print(f"- {node_name}: {value}")
+                    
+            except Exception as e:
+                print(f"WARNING: Could not set {node_name}: {e}")
 
     def start(self):
-        """
-        Starts the image acquisition in a separate thread.
-        """
+        """Start image acquisition in a separate thread."""
         if self._acquisition_thread is not None:
             print("Acquisition already running.")
             return
 
         print("Starting acquisition...")
+        # Reset dropped frame counters
+        self._last_frame_id = -1
+        self._total_dropped_frames = 0
+        
         self._stop_event.clear()
         self._acquisition_thread = threading.Thread(target=self._acquisition_loop)
         self._acquisition_thread.start()
         print("Acquisition thread started.")
 
     def stop(self):
-        """
-        Stops the image acquisition thread and releases all resources.
-        """
+        """Stop acquisition thread and release all resources."""
         print("Stopping acquisition...")
+        
         if self._acquisition_thread:
             self._stop_event.set()
-            self._acquisition_thread.join(timeout=2) # Wait for thread to finish
+            self._acquisition_thread.join(timeout=2)
             self._acquisition_thread = None
 
-        try:
-            if self._nodemap_remote:
-                self._nodemap_remote.FindNode("ChunkModeActive").SetValue(False)
-                print("Chunk mode disabled.")
-        except Exception as e:
-            print(f"WARN: Could not disable chunk mode on exit: {e}")
-
-        # Release camera resources
-        if self._device:
-            try:
-                # The acquisition thread handles stopping the stream,
-                # but we can try to stop it here as a fallback.
-                self._nodemap_remote.FindNode("AcquisitionStop").Execute()
-            except Exception:
-                pass # Might already be stopped
-        
-        # Close library
+        # Cleanup
+        self._cleanup_camera()
         ids_peak.Library.Close()
         print("Camera resources released.")
 
-    def _acquisition_loop(self):
-        """
-        The main loop for acquiring images from the camera.
-        This function runs in a separate thread.
-        """
+    def _cleanup_camera(self):
+        """Clean up camera resources."""
         try:
-            # Open data stream
-            self._datastream = self._device.DataStreams()[0].OpenDataStream()
-            stream_nodemap = self._datastream.NodeMaps()[0]
+            if self._nodemap_remote:
+                self._nodemap_remote.FindNode("ChunkModeActive").SetValue(False)
+                self._nodemap_remote.FindNode("AcquisitionStop").Execute()
+        except Exception as e:
+            print(f"WARN: Cleanup warning: {e}")
 
-            # Configure buffer handling for performance
-            stream_nodemap.FindNode("StreamBufferHandlingMode").SetCurrentEntry("NewestOnly")
-            
-            # Allocate and queue buffers
-            payload_size = self._nodemap_remote.FindNode("PayloadSize").Value()
-            num_buffers = 10
-            for _ in range(num_buffers):
-                buf = self._datastream.AllocAndAnnounceBuffer(payload_size)
-                self._datastream.QueueBuffer(buf)
-            
-            # Start acquisition
-            self._datastream.StartAcquisition()
-            self._nodemap_remote.FindNode("AcquisitionStart").Execute()
-            self._nodemap_remote.FindNode("AcquisitionStart").WaitUntilDone()
-            
-            print("Acquisition loop is running.")
-            
-            # --- Main acquisition loop ---
-            while not self._stop_event.is_set():
-                buffer = None
-                try:
-                    buffer = self._datastream.WaitForFinishedBuffer(1000)
-                    
-                    # --- Extract all data from the buffer first ---
-                    
-                    # 1. Extract basic metadata that requires chunks (essential data)
-                    try:
-                        metadata = {
-                            "frame_id": buffer.FrameID(),
-                            "timestamp_ns": buffer.Timestamp_ns(),
-                            "width": buffer.Width(),
-                            "height": buffer.Height(),
-                        }
-                    except Exception as e:
-                        # If basic chunk data access fails, this is likely an incomplete buffer
-                        print(f"WARN: Incomplete buffer received, dropping frame: {e}")
-                        if buffer is not None:
-                            self._datastream.QueueBuffer(buffer)
-                        continue
-                    
-                    # 2. Try to get offset data safely (optional data)
-                    try:
-                        # Check if the buffer has chunk data before accessing
-                        if buffer.HasChunkData(ids_peak.ChunkID_OffsetX):
-                            metadata["offset_x"] = buffer.XOffset()
-                        else:
-                            metadata["offset_x"] = config.CAM_X_OFFSET if hasattr(config, 'CAM_X_OFFSET') else 0
-                            
-                        if buffer.HasChunkData(ids_peak.ChunkID_OffsetY):
-                            metadata["offset_y"] = buffer.YOffset()
-                        else:
-                            metadata["offset_y"] = config.CAM_Y_OFFSET if hasattr(config, 'CAM_Y_OFFSET') else 0
-                    except Exception:
-                        # Fallback if access fails despite check
-                        metadata["offset_x"] = config.CAM_X_OFFSET if hasattr(config, 'CAM_X_OFFSET') else 0
-                        metadata["offset_y"] = config.CAM_Y_OFFSET if hasattr(config, 'CAM_Y_OFFSET') else 0
-
-                    # 3. Convert buffer to image using BufferToImage
-                    try:
-                        ipl_image = ids_peak_ipl_extension.BufferToImage(buffer)
-                        frame_data = ipl_image.get_numpy_1D().copy()
-                        frame_data = frame_data.reshape(metadata["height"], metadata["width"])
-                    except Exception as e:
-                        # If image conversion fails, this is also likely an incomplete buffer
-                        print(f"WARN: Image conversion failed, dropping frame: {e}")
-                        if buffer is not None:
-                            self._datastream.QueueBuffer(buffer)
-                        continue
-
-                    # --- Now that we have everything, re-queue the buffer ---
-                    if buffer is not None:
-                        self._datastream.QueueBuffer(buffer)
-                        buffer = None  # Mark as queued
-
-                    # --- Share data with the main thread ---
-                    with self._lock:
-                        self._latest_frame = frame_data
-                        self._metadata = metadata
-
-                except ids_peak.Exception as e:
-                    # Handle different types of IDS exceptions
-                    if hasattr(e, 'error_code') and e.error_code == ids_peak.IPL_ERROR_TIMEOUT:
-                        continue
-                    else:
-                        # Don't break on BAD_ACCESS errors - just drop the frame and continue
-                        print(f"WARN: Dropped frame due to IDS peak error: {e}")
-                        if buffer is not None:
-                            try:
-                                self._datastream.QueueBuffer(buffer)
-                            except Exception:
-                                pass
-                        continue
-                except Exception as e:
-                    # Only break on truly critical errors, not buffer access issues
-                    if "Buffer is currently not delivered" in str(e) or "BAD_ACCESS" in str(e):
-                        print(f"WARN: Buffer access issue, dropping frame: {e}")
-                        if buffer is not None:
-                            try:
-                                self._datastream.QueueBuffer(buffer)
-                            except Exception:
-                                pass
-                        continue
-                    else:
-                        print(f"CRITICAL: General acquisition error, stopping loop: {e}")
-                        break
-                finally:
-                    # Ensure buffer is always re-queued if still held
-                    if buffer is not None:
-                        try:
-                            self._datastream.QueueBuffer(buffer)
-                        except Exception:
-                            # Buffer might already be queued, ignore
-                            pass
+    def _acquisition_loop(self):
+        """Main acquisition loop running in separate thread."""
+        try:
+            self._setup_datastream()
+            self._run_acquisition()
         finally:
-            # --- Cleanup in acquisition thread ---
-            print("Acquisition loop is cleaning up.")
-            if self._datastream:
-                try:
-                    self._nodemap_remote.FindNode("AcquisitionStop").Execute()
-                    self._datastream.StopAcquisition(ids_peak.AcquisitionStopMode_Default)
-                    self._datastream.Flush(ids_peak.DataStreamFlushMode_DiscardAll)
-                    for buf in self._datastream.AnnouncedBuffers():
-                        self._datastream.RevokeBuffer(buf)
-                except Exception as e:
-                    print(f"Error during stream cleanup: {e}")
+            self._cleanup_datastream()
+
+    def _setup_datastream(self):
+        """Setup data stream and buffers."""
+        self._datastream = self._device.DataStreams()[0].OpenDataStream()
+        stream_nodemap = self._datastream.NodeMaps()[0]
+
+        # Increase buffer count for high-speed capture
+        num_buffers = 10 
+        
+        # Configure for even better performance
+        stream_nodemap.FindNode("StreamBufferHandlingMode").SetCurrentEntry("OldestFirst")
+        # Add buffer alignment if available
+        try:
+            stream_nodemap.FindNode("StreamBufferAlignment").SetValue(4096)
+        except:
+            pass
+        
+        # Allocate buffers
+        payload_size = self._nodemap_remote.FindNode("PayloadSize").Value()
+        
+        for _ in range(num_buffers):
+            buf = self._datastream.AllocAndAnnounceBuffer(payload_size)
+            self._datastream.QueueBuffer(buf)
+        
+        # Start acquisition
+        self._datastream.StartAcquisition()
+        self._nodemap_remote.FindNode("AcquisitionStart").Execute()
+        self._nodemap_remote.FindNode("AcquisitionStart").WaitUntilDone()
+        
+        print("Acquisition loop is running.")
+
+    def _run_acquisition(self):
+        """Main acquisition loop."""
+        while not self._stop_event.is_set():
+            buffer = None
+            try:
+                buffer = self._datastream.WaitForFinishedBuffer(1000)
+                
+                # Extract metadata and image data
+                metadata = self._extract_metadata(buffer)
+                if metadata is None:
+                    continue
+                
+                frame_data = self._extract_image_data(buffer, metadata)
+                if frame_data is None:
+                    continue
+                
+                # Check for dropped frames
+                current_frame_id = metadata.get("frame_id", -1)
+                self._update_dropped_frame_count(current_frame_id)
+                
+                # Add dropped frame count to metadata
+                metadata["dropped_frames"] = self._total_dropped_frames
+
+                # Share data with main thread
+                with self._lock:
+                    self._latest_frame = frame_data
+                    self._metadata = metadata
+
+            except ids_peak.Exception as e:
+                if hasattr(e, 'error_code') and e.error_code == ids_peak.IPL_ERROR_TIMEOUT:
+                    continue
+                else:
+                    print(f"WARN: Dropped frame due to IDS peak error: {e}")
+                    continue
+                    
+            except Exception as e:
+                if any(err in str(e) for err in ["Buffer is currently not delivered", "BAD_ACCESS"]):
+                    print(f"WARN: Buffer access issue, dropping frame: {e}")
+                    continue
+                else:
+                    print(f"CRITICAL: General acquisition error, stopping loop: {e}")
+                    break
+            finally:
+                # Always requeue buffer
+                if buffer is not None:
+                    try:
+                        self._datastream.QueueBuffer(buffer)
+                    except Exception:
+                        pass
+
+    def _update_dropped_frame_count(self, current_frame_id: int):
+        """Update the dropped frame counter based on frame IDs."""
+        if self._last_frame_id != -1 and current_frame_id > self._last_frame_id + 1:
+            dropped_in_gap = current_frame_id - (self._last_frame_id + 1)
+            self._total_dropped_frames += dropped_in_gap
+            #if dropped_in_gap > 0:
+                #print(f"WARN: {dropped_in_gap} frame(s) dropped between ID {self._last_frame_id} and {current_frame_id}, total dropped: {self._total_dropped_frames}")
+        
+        self._last_frame_id = current_frame_id
+
+    def _extract_metadata(self, buffer) -> Optional[Dict]:
+        """Extract metadata from buffer chunks."""
+        try:
+            if not buffer.HasChunks():
+                return None
+            
+            self._nodemap_remote.UpdateChunkNodes(buffer)
+            self._nodemap_remote.FindNode("ChunkCounterSelector").SetCurrentEntry("Counter0")
+            
+            return {
+                "frame_id": self._nodemap_remote.FindNode("ChunkCounterValue").Value(),
+                "timestamp_ns": self._nodemap_remote.FindNode("ChunkTimestamp").Value(),
+                "width": self._nodemap_remote.FindNode("ChunkWidth").Value(),
+                "height": self._nodemap_remote.FindNode("ChunkHeight").Value(),
+                "offset_x": self._nodemap_remote.FindNode("ChunkOffsetX").Value(),
+                "offset_y": self._nodemap_remote.FindNode("ChunkOffsetY").Value(),
+                "gain": self._nodemap_remote.FindNode("ChunkGain").Value(),
+                "exposure_time": self._nodemap_remote.FindNode("ChunkExposureTime").Value()
+            }
+            
+        except Exception as e:
+            print(f"WARN: Incomplete buffer received, dropping frame: {e}")
+            return None
+
+    def _extract_image_data(self, buffer, metadata) -> Optional[np.ndarray]:
+        """Extract and convert image data from buffer."""
+        try:
+            ipl_image = ids_peak_ipl_extension.BufferToImage(buffer)
+            frame_data = ipl_image.get_numpy_1D().copy()
+            return frame_data.reshape(metadata["height"], metadata["width"])
+        except Exception as e:
+            print(f"WARN: Image conversion failed, dropping frame: {e}")
+            return None
+
+    def _cleanup_datastream(self):
+        """Clean up data stream resources."""
+        print("Acquisition loop is cleaning up.")
+        if not self._datastream:
+            return
+            
+        try:
+            self._nodemap_remote.FindNode("AcquisitionStop").Execute()
+            self._datastream.StopAcquisition(ids_peak.AcquisitionStopMode_Default)
+            self._datastream.Flush(ids_peak.DataStreamFlushMode_DiscardAll)
+            
+            for buf in self._datastream.AnnouncedBuffers():
+                self._datastream.RevokeBuffer(buf)
+        except Exception as e:
+            print(f"Error during stream cleanup: {e}")
 
     def get_frame(self) -> Tuple[Optional[np.ndarray], Dict[str, any]]:
         """
-        Retrieves the latest captured frame and its metadata.
+        Retrieve the latest captured frame and its metadata.
 
         Returns:
-            A tuple containing:
-            - The latest frame as a NumPy array (or None if not available).
-            - A dictionary with metadata about the frame.
+            Tuple of (frame, metadata) where frame is a NumPy array or None.
+            Metadata now includes 'dropped_frames' count.
         """
         with self._lock:
             frame_copy = self._latest_frame.copy() if self._latest_frame is not None else None
@@ -325,10 +342,10 @@ class IDS_Camera:
 
     def set_exposure(self, exposure_us: float):
         """
-        Sets the camera's exposure time while the stream is running.
+        Set camera exposure time while stream is running.
         
         Args:
-            exposure_us: The new exposure time in microseconds.
+            exposure_us: New exposure time in microseconds
         """
         try:
             exp_node = self._nodemap_remote.FindNode("ExposureTime")
@@ -341,3 +358,12 @@ class IDS_Camera:
                 print(f"WARN: Exposure value {exposure_us} is out of range ({min_val}-{max_val}).")
         except Exception as e:
             print(f"ERROR: Failed to set exposure: {e}")
+
+    def get_dropped_frame_count(self) -> int:
+        """
+        Get the total number of dropped frames since acquisition started.
+        
+        Returns:
+            Total number of dropped frames
+        """
+        return self._total_dropped_frames
