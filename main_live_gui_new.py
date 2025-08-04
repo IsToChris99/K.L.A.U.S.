@@ -12,9 +12,10 @@ from detection.field_detector import FieldDetector
 from analysis.goal_scorer import GoalScorer
 from input.ids_camera import IDS_Camera
 from processing.cpu_preprocessor import CPUPreprocessor
-from processing.gpu_preprocessor import GPUPreprocessor
+#from processing.gpu_preprocessor import GPUPreprocessor    #import in qt_window.py
 from display.qt_window import KickerMainWindow
 import config
+from match_modes.match_modes import MatchModes  # Import match modes class
 
 # ================== COMBINED TRACKER ==================
 
@@ -357,9 +358,10 @@ def main_gui():
     try:
         # Create tracker
         tracker = CombinedTracker()
-        
+        matcher = MatchModes()  # Initialize match modes
+
         # Create main window and pass tracker
-        window = KickerMainWindow(tracker)
+        window = KickerMainWindow(tracker, matcher)
         window.show()
         window.add_log_message("GUI started - testing camera status...")
         
@@ -371,6 +373,9 @@ def main_gui():
     except Exception as e:
         print(f"Error starting GUI: {e}")
         return 1
-
-if __name__ == "__main__":
+    
+def main():
     sys.exit(main_gui())
+    
+if __name__ == "__main__":
+    main()
