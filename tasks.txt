@@ -18,11 +18,11 @@ Goal detection:
         There needs to be a way to recognize that the ball was aiming for the goal before it disappeares, so that a goal can be counted.
 
 Field detection:
-    -   Visible bounding box is not the same box that is used for the mask in which the ball is detected (Joshua)
-    -   Find field via colored marker
+    -   ✅ Visible bounding box is not the same box that is used for the mask in which the ball is detected (Joshua)
+    -   ✅ Find field via colored marker
 
 Ball detection:
-    -   Ball trail lags behind due to kalman prediction
+    -   🔄 Ball trail lags behind due to kalman prediction (Joshua)
 
 Player detection:
     -   Player detection (Tim)
