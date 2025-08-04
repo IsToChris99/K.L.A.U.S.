@@ -6,8 +6,8 @@ from queue import Queue, LifoQueue, Empty
 from collections import deque
 
 # Local imports
-from detection.ball_detector import BallDetector  
-from detection.field_detector import FieldDetector
+from detection.ball_detector import BallDetector
+from detection.field_detector_markers import FieldDetector
 from analysis.goal_scorer import GoalScorer
 from input.videostream import VideoStream
 from input.ids_camera import IDS_Camera
@@ -130,18 +130,19 @@ class CombinedTracker:
                 continue
                 
             
-            # Field bounds for restricted ball search
-            field_bounds = None
+            # Field corners for restricted ball search
+            field_corners = None
             goals = []
             if self.field_data and self.field_data['calibrated']:
-                if self.field_data['field_bounds']:
-                    field_bounds = self.field_data['field_bounds']
+                if self.field_data['field_corners'] is not None:
+                    field_corners = self.field_data['field_corners']
                 if self.field_data['goals']:
                     goals = self.field_data['goals']
 
             # Ball detection with field_bounds
-            detection_result = self.ball_tracker.detect_ball(frame, field_bounds)
-            self.ball_tracker.update_tracking(detection_result, field_bounds)
+            # Ball detection with field_corners
+            detection_result = self.ball_tracker.detect_ball(frame, field_corners)
+            self.ball_tracker.update_tracking(detection_result, field_corners)
             self.velocity = self.ball_speed.update(detection_result[0], self.timestamp_ns)
             print(f"\rBall Velocity: {self.velocity:.2f} cm/s", end="")
 
@@ -150,7 +151,7 @@ class CombinedTracker:
             self.goal_scorer.update_ball_tracking(
                 ball_position, 
                 goals, 
-                field_bounds, 
+                field_corners, 
                 self.ball_tracker.missing_counter
             )
             
@@ -182,16 +183,12 @@ class CombinedTracker:
             with self.result_lock:
                 self.field_data = {
                     'calibrated': self.field_detector.calibrated,
-                    'field_contour': self.field_detector.field_contour,
                     'field_corners': self.field_detector.field_corners,
-                    'field_bounds': self.field_detector.field_bounds,
-                    'field_rect_points': self.field_detector.field_rect_points,
                     'goals': self.field_detector.goals,
                     'stable_counter': self.field_detector.stable_detection_counter,
                     'calibration_mode': self.calibration_mode,
                     'calibration_requested': self.calibration_requested
                 }
-
             
             self.field_width = self.field_data['field_corners'][1][0] - self.field_data['field_corners'][0][0] if self.field_data['field_corners'] else 0
             self.field_height = self.field_data['field_corners'][1][1] - self.field_data['field_corners'][0][1] if self.field_data['field_corners'] else 0
@@ -259,10 +256,6 @@ class CombinedTracker:
         if field_data_copy is None:
             return
 
-        # Field contour
-        if field_data_copy['calibrated'] and field_data_copy['field_contour'] is not None:
-            cv2.drawContours(frame, [field_data_copy['field_contour']], -1, config.COLOR_FIELD_CONTOUR, 3)
-
         # Field corners
         if field_data_copy['field_corners'] is not None:
             for i, corner in enumerate(field_data_copy['field_corners']):
@@ -272,19 +265,25 @@ class CombinedTracker:
 
         # Goals
         for i, goal in enumerate(field_data_copy['goals']):
-            x, y, w, h = goal['bounds']
-            cv2.rectangle(frame, (x, y), (x+w, y+h), config.COLOR_GOALS, 2)
-            cv2.putText(frame, f"Goal {i+1} ({goal['type']})", (x, y-10),
+            # Zeichne die ausgerichtete Tor-Kontur wenn vorhanden
+            if goal.get('contour') is not None:
+                cv2.drawContours(frame, [goal['contour']], -1, config.COLOR_GOALS, 2)
+            else:
+                # Fallback auf rechteckige Bounds
+                x, y, w, h = goal['bounds']
+                cv2.rectangle(frame, (x, y), (x+w, y+h), config.COLOR_GOALS, 2)
+
+            # Zeichne Tor-Center und Label
+            center_x, center_y = goal['center']
+            cv2.circle(frame, (center_x, center_y), 5, config.COLOR_GOALS, -1)
+            cv2.putText(frame, f"Goal {i+1} ({goal['type']})", (center_x-30, center_y-15),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, config.COLOR_GOALS, 2)
 
-        # Field limits - Uses minAreaRect
+        # Field limits with corners
         if (field_data_copy['calibrated'] and 
-            field_data_copy.get('field_rect_points') is not None):
-            cv2.drawContours(frame, [field_data_copy['field_rect_points']], -1, config.COLOR_FIELD_BOUNDS, 2)
-        elif field_data_copy['calibrated'] and field_data_copy['field_bounds']:
-            # Fallback: normal bounding box rectangle
-            x, y, w, h = field_data_copy['field_bounds']
-            cv2.rectangle(frame, (x, y), (x+w, y+h), config.COLOR_FIELD_BOUNDS, 2)
+            field_data_copy.get('field_corners') is not None):
+            cv2.drawContours(frame, [field_data_copy['field_corners']], -1, config.COLOR_FIELD_BOUNDS, 2)
+
 
         # Calibration info
         if (field_data_copy['calibration_requested'] and 

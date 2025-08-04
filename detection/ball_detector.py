@@ -35,7 +35,7 @@ class BallDetector:
         
         pass
 
-    def detect_ball(self, frame, field_bounds=None):
+    def detect_ball(self, frame, field_corners=None):
         """Ball detection with multi-criteria evaluation"""
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
 
@@ -43,11 +43,11 @@ class BallDetector:
         mask2 = cv2.inRange(hsv, self.lower_alt, self.upper_alt)
         mask = cv2.bitwise_or(mask1, mask2)
         
-        # When field bounds are provided, apply a mask
-        if field_bounds is not None:
-            x, y, w, h = field_bounds
+        # When field corners are provided, create a mask for the field area
+        if field_corners is not None:
             field_mask = np.zeros(mask.shape, dtype=np.uint8)
-            field_mask[y:y+h, x:x+w] = 255
+            # Create a polygon mask from the field corners
+            cv2.fillPoly(field_mask, [field_corners.astype(np.int32)], 255)
             mask = cv2.bitwise_and(mask, field_mask)
 
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
@@ -152,38 +152,37 @@ class BallDetector:
 
         return score, center, radius
 
-    def _constrain_to_field(self, position, field_bounds):
-        """Constrains the position to the field boundaries"""
-        if position is None or field_bounds is None:
+    def _constrain_to_field(self, position, field_corners):
+        """Constrains the position to the field boundaries defined by corners"""
+        if position is None or field_corners is None:
             return position
             
         x, y = position
-        fx, fy, fw, fh = field_bounds
         
-        buffer = 10
-        constrained_x = max(fx + buffer, min(fx + fw - buffer, x))
-        constrained_y = max(fy + buffer, min(fy + fh - buffer, y))
+        # Check if point is inside the field polygon
+        point_in_field = cv2.pointPolygonTest(field_corners.astype(np.float32), (x, y), False)
         
-        return (int(constrained_x), int(constrained_y))
+        # If point is inside the field, return original position
+        if point_in_field >= 0:
+            return position
+        
+        # If outside field, simply return original position (let Kalman handle it)
+        # This is much simpler but less precise
+        return position
     
-    def _adjust_kalman_velocity(self, position, field_bounds):
+    def _adjust_kalman_velocity(self, position, field_corners):
         """Reduces Kalman velocity near field boundaries"""
-        if position is None or field_bounds is None or not self.kalman_tracker.initialized:
+        if position is None or field_corners is None or not self.kalman_tracker.initialized:
             return
             
         x, y = position
-        fx, fy, fw, fh = field_bounds
         
-        dist_left = x - fx
-        dist_right = (fx + fw) - x
-        dist_top = y - fy
-        dist_bottom = (fy + fh) - y
+        # Calculate distance to the field boundary
+        distance_to_boundary = cv2.pointPolygonTest(field_corners.astype(np.float32), (x, y), True)
         
-        min_distance = min(dist_left, dist_right, dist_top, dist_bottom)
-        
-        # If very close to the edge (within 20 pixels), reduce velocity
-        if min_distance < 20:
-            velocity_factor = max(0.1, min_distance / 20.0)
+        # If close to the boundary (within 20 pixels), reduce velocity
+        if distance_to_boundary < 20 and distance_to_boundary >= 0:
+            velocity_factor = max(0.1, distance_to_boundary / 20.0)
 
             current_state = self.kalman_tracker.kalman.statePost.copy()
             
@@ -192,16 +191,16 @@ class BallDetector:
             
             self.kalman_tracker.kalman.statePost = current_state
 
-    def update_tracking(self, detection_result, field_bounds=None):
+    def update_tracking(self, detection_result, field_corners=None):
         """Extended tracking logic with Kalman filter and field boundaries"""
         center, radius, confidence, velocity = detection_result if detection_result[0] is not None else (None, 0, 0, None)
 
         kalman_pos = self.kalman_tracker.update(center)
 
         # Kalman prediction constrained to field
-        if kalman_pos is not None and field_bounds is not None:
-            kalman_pos = self._constrain_to_field(kalman_pos, field_bounds)
-            self._adjust_kalman_velocity(kalman_pos, field_bounds)
+        if kalman_pos is not None and field_corners is not None:
+            kalman_pos = self._constrain_to_field(kalman_pos, field_corners)
+            self._adjust_kalman_velocity(kalman_pos, field_corners)
         
         if center is not None:
             # Good detection - use real measurement

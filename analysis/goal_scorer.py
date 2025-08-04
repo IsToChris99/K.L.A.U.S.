@@ -51,18 +51,18 @@ class GoalScorer:
         
         return False, None
     
-    def is_ball_in_field(self, ball_position, field_bounds):
-        """Checks if the ball is in the field"""
-        if ball_position is None or field_bounds is None:
+    def is_ball_in_field(self, ball_position, field_corners):
+        """Checks if the ball is in the field using corner points"""
+        if ball_position is None or field_corners is None:
             return False
         
         ball_x, ball_y = ball_position
-        field_x, field_y, field_w, field_h = field_bounds
         
-        return (field_x <= ball_x <= field_x + field_w and
-                field_y <= ball_y <= field_y + field_h)
+        # Use cv2.pointPolygonTest to check if ball is inside the field polygon
+        result = cv2.pointPolygonTest(field_corners.astype(np.float32), (ball_x, ball_y), False)
+        return result >= 0  # >= 0 means inside or on the boundary
     
-    def update_ball_tracking(self, ball_position, goals, field_bounds, ball_missing_counter):
+    def update_ball_tracking(self, ball_position, goals, field_corners, ball_missing_counter):
         """Main function for updating ball tracking and goal detection"""
         self.ball_missing_counter = ball_missing_counter
         current_time = time.time()
@@ -89,7 +89,7 @@ class GoalScorer:
             
             elif not in_goal and self.ball_in_goal:
                 # Ball left the goal
-                if self.is_ball_in_field(ball_position, field_bounds):
+                if self.is_ball_in_field(ball_position, field_corners):
                     # Ball returned to field - no goal!
                     if self.debug_verbose:
                         print(f"Ball returned to field from {self.ball_in_goal_type} goal - NO GOAL")
@@ -105,7 +105,7 @@ class GoalScorer:
                 self._score_goal(self.ball_in_goal_type)
                 
         if self.goal_scored_recently:
-            self._check_for_goal_return(ball_position, field_bounds, current_time)
+            self._check_for_goal_return(ball_position, field_corners, current_time)
     
     def _score_goal(self, goal_type):
         """Counts a goal for the corresponding player"""
@@ -133,13 +133,13 @@ class GoalScorer:
         self.ball_in_goal_type = None
         self.ball_in_goal_start_time = None
     
-    def _check_for_goal_return(self, ball_position, field_bounds, current_time):
+    def _check_for_goal_return(self, ball_position, field_corners, current_time):
         """Checks if the ball returns to the playing field after a goal"""
         if current_time - self.goal_scored_time > self.goal_reversal_time_window:
             self.goal_scored_recently = False
             return
         
-        if ball_position and self.is_ball_in_field(ball_position, field_bounds):
+        if ball_position and self.is_ball_in_field(ball_position, field_corners):
             # Ball is back in the field - reverse goal
             if self.goal_scored_type in self.player1_goal_types:
                 self.player1_goals = max(0, self.player1_goals - 1)

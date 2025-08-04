@@ -219,10 +219,10 @@ class FieldDetector:
         field_width = 118
         field_height = 68
         dst_points = np.array([
-                                [0, 0],
-                                [field_width, 0],
-                                [field_width, field_height],
-                                [0, field_height]
+                                [-field_width/2, field_height/2],
+                                [field_width/2, field_height/2],
+                                [field_width/2, -field_height/2],
+                                [-field_width/2, -field_height/2]
                             ], dtype=np.float32)
         
         # Create transformation matrix
