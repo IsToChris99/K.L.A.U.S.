@@ -33,9 +33,6 @@ class BallDetector:
         self.confidence_threshold = BALL_CONFIDENCE_THRESHOLD
         self.recent_detections = deque(maxlen=10)
         
-        # Flag to track if we just recovered from a long pause
-        self.just_recovered = False
-        
         pass
 
     def detect_ball(self, frame, field_corners=None):
@@ -85,12 +82,7 @@ class BallDetector:
         best = max(candidates, key=lambda x: x['score'])
         confidence = min(best['score'] / 100.0, 1.0)
 
-        # Lower confidence threshold after long missing period
-        effective_threshold = self.confidence_threshold
-        if hasattr(self, 'missing_counter') and self.missing_counter > self.max_missing_frames:
-            effective_threshold = max(0.3, self.confidence_threshold - 0.2)
-
-        if confidence >= effective_threshold:
+        if confidence >= self.confidence_threshold:
             return best['center'], best['radius'], confidence, kalman_prediction
         else:
             return None, 0, confidence, kalman_prediction
@@ -137,12 +129,6 @@ class BallDetector:
             distance_to_trend = np.sqrt((center[0] - avg_pos[0])**2 + (center[1] - avg_pos[1])**2)
             if distance_to_trend < 30:
                 score += 15 * (1.0 - min(distance_to_trend / 30.0, 1.0))
-        
-        # If ball was missing for long time, be more lenient with movement consistency
-        elif hasattr(self, 'missing_counter') and self.missing_counter > self.max_missing_frames:
-            # Give bonus for any reasonable detection after long absence
-            if 3 * WIDTH_RATIO <= radius <= 12 * WIDTH_RATIO:
-                score += 10
                 
         # 5. Kalman prediction consistency
         if kalman_prediction and self.last_good_detection:
@@ -217,34 +203,11 @@ class BallDetector:
         
         if center is not None:
             # Good detection - use real measurement
-            
-            # Check if we're recovering from a long pause
-            was_long_missing = self.missing_counter > self.max_missing_frames
-            
-            # If ball was missing for a long time, use direct position without heavy smoothing
-            if was_long_missing:
-                # Reset smoother to respond faster
-                self.smoother = Smoother(window_size=max(1, BALL_SMOOTHER_WINDOW_SIZE // 2))
-                self.just_recovered = True
-                
-                # For first detection after long pause, use direct measurement
-                if self.missing_counter > self.max_missing_frames * 1.5:
-                    smoothed_center = center  # Use direct measurement
-                    self.kalman_tracker.soft_reset(center)
-                else:
-                    smoothed_center = self.smoother.update(center)
-            else:
-                # Normal tracking - gradually restore normal smoothing after recovery
-                if self.just_recovered and len(self.recent_detections) >= 3:
-                    self.smoother = Smoother(window_size=BALL_SMOOTHER_WINDOW_SIZE)
-                    self.just_recovered = False
-                
-                smoothed_center = self.smoother.update(center)
-            
             self.missing_counter = 0
             self.last_good_detection = center
             self.recent_detections.append(center)
             
+            smoothed_center = self.smoother.update(center)
             self.smoothed_pts.appendleft(smoothed_center)
             
             if smoothed_center is not None:
@@ -270,19 +233,8 @@ class BallDetector:
                     
         # Tracking reset if ball is missing for too long
         if self.missing_counter > self.max_missing_frames * 2:
-            # Don't completely reset - try soft reset first if we have recent detections
-            if len(self.recent_detections) > 0 and self.kalman_tracker.initialized:
-                # Store the current velocity before any reset
-                current_velocity = self.kalman_tracker.get_velocity()
-                self.kalman_tracker.last_velocity = current_velocity
-                
-            self.smoother = Smoother(window_size=max(1, BALL_SMOOTHER_WINDOW_SIZE))
-            # Only hard reset Kalman if we have no recent information
-            if len(self.recent_detections) == 0:
-                self.kalman_tracker = KalmanBallTracker()
-            else:
-                # Keep the tracker but mark as uninitialized for soft reset
-                self.kalman_tracker.initialized = False
+            self.smoother = Smoother(window_size=20)
+            self.kalman_tracker = KalmanBallTracker()
             self.recent_detections.clear()
 
     def create_screenshot(self):
@@ -390,21 +342,13 @@ class KalmanBallTracker:
         self.kalman.errorCovPost = np.eye(4, dtype=np.float32)
         self.initialized = False
         
-        # Store last known velocity for re-initialization
-        self.last_velocity = (0, 0)
-        self.frames_since_last_update = 0
-        
     def update(self, measurement):
         """Updates Kalman Filter with new measurement"""
         if not self.initialized and measurement is not None:
             # Initialization with first measurement
-            # Use stored velocity if available (from previous tracking session)
-            self.kalman.statePre = np.array([measurement[0], measurement[1], 
-                                           self.last_velocity[0], self.last_velocity[1]], np.float32)
-            self.kalman.statePost = np.array([measurement[0], measurement[1], 
-                                            self.last_velocity[0], self.last_velocity[1]], np.float32)
+            self.kalman.statePre = np.array([measurement[0], measurement[1], 0, 0], np.float32)
+            self.kalman.statePost = np.array([measurement[0], measurement[1], 0, 0], np.float32)
             self.initialized = True
-            self.frames_since_last_update = 0
             return measurement
             
         if not self.initialized:
@@ -416,53 +360,10 @@ class KalmanBallTracker:
         if measurement is not None:
             # Correction with measurement
             self.kalman.correct(np.array([measurement[0], measurement[1]], np.float32))
-            # Store current velocity for potential re-initialization
-            self.last_velocity = self.get_velocity()
-            self.frames_since_last_update = 0
-            
-            # Reset process noise after adaptation period (10 frames)
-            if hasattr(self, '_adaptation_frames'):
-                self._adaptation_frames += 1
-                if self._adaptation_frames > 10:
-                    self.reset_adaptation_noise()
-                    delattr(self, '_adaptation_frames')
-            
             return measurement
         else:
             # Use prediction only
-            self.frames_since_last_update += 1
-            
-            # Gradually reduce velocity for long missing periods
-            if self.frames_since_last_update > 30:
-                velocity_decay = max(0.5, 1.0 - (self.frames_since_last_update - 30) * 0.01)
-                current_state = self.kalman.statePost.copy()
-                current_state[2] *= velocity_decay
-                current_state[3] *= velocity_decay
-                self.kalman.statePost = current_state
-                
             return predicted_pos
-    
-    def soft_reset(self, new_position):
-        """Soft reset that preserves some velocity information"""
-        if new_position is not None:
-            # Keep some of the last known velocity, but reduce it
-            reduced_velocity = (self.last_velocity[0] * 0.3, self.last_velocity[1] * 0.3)
-            
-            self.kalman.statePre = np.array([new_position[0], new_position[1], 
-                                           reduced_velocity[0], reduced_velocity[1]], np.float32)
-            self.kalman.statePost = np.array([new_position[0], new_position[1], 
-                                            reduced_velocity[0], reduced_velocity[1]], np.float32)
-            
-            # Temporarily increase process noise for faster adaptation
-            self.kalman.processNoiseCov = 0.1 * np.eye(4, dtype=np.float32)
-            self._adaptation_frames = 0  # Track adaptation period
-            
-            self.frames_since_last_update = 0
-            self.initialized = True
-    
-    def reset_adaptation_noise(self):
-        """Reset process noise to normal after adaptation period"""
-        self.kalman.processNoiseCov = 0.03 * np.eye(4, dtype=np.float32)
             
     def get_velocity(self):
         """Returns current velocity"""
