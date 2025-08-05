@@ -48,7 +48,8 @@ class GPUPreprocessor:
         
         # Multi-pass shader programs
         self.demosaic_shader = None  # Pass 1: Bayer -> RGB
-        self.undistort_shader = None # Pass 2: RGB -> Undistorted & Resized
+        self.undistort_shader = None # Pass 2: RGB -> RGB undistorted (same size)
+        self.resize_shader = None    # Pass 3: RGB undistorted -> RGB resized (target size)
         
         self.vao = None
         self.vbo = None
@@ -56,11 +57,13 @@ class GPUPreprocessor:
         # Textures and framebuffers for multi-pass rendering
         self.bayer_texture_id = None      # Input: Raw Bayer data
         self.rgb_texture_id = None        # Intermediate: Demosaiced RGB (full size)
-        self.output_texture_id = None     # Output: Final undistorted & resized
+        self.undistorted_texture_id = None # Intermediate: Undistorted RGB (full size)
+        self.output_texture_id = None     # Output: Final resized
         
         # Framebuffers for each pass
         self.demosaic_fbo = None          # For Pass 1: Bayer -> RGB
-        self.undistort_fbo = None         # For Pass 2: RGB -> Final
+        self.undistort_fbo = None         # For Pass 2: RGB -> Undistorted
+        self.resize_fbo = None            # For Pass 3: Undistorted -> Resized
         
         # Remap textures for undistortion (like OpenCV's remap)
         self.map1_texture_id = None
@@ -168,26 +171,32 @@ class GPUPreprocessor:
             raise Exception(f"Error reading shader file {shader_path}: {e}")
 
     def _initialize_shaders(self):
-        """Compiles the vertex and fragment shaders for multi-pass rendering."""
+        """Compiles the vertex and fragment shaders for three-pass rendering."""
         try:
-            # Load vertex shader (same for both passes)
+            # Load vertex shader (same for all passes)
             vertex_shader_source = self._load_shader_file('vertex.glsl')
             
             # Load fragment shaders for each pass
             demosaic_fragment_source = self._load_shader_file('demosaic_fragment.glsl')
             undistort_fragment_source = self._load_shader_file('undistort_fragment.glsl')
+            resize_fragment_source = self._load_shader_file('resize_fragment.glsl')
             
             # Compile Pass 1 shaders (Demosaicing)
             vs1 = pyglet.graphics.shader.Shader(vertex_shader_source, 'vertex')
             fs1 = pyglet.graphics.shader.Shader(demosaic_fragment_source, 'fragment')
             self.demosaic_shader = pyglet.graphics.shader.ShaderProgram(vs1, fs1)
             
-            # Compile Pass 2 shaders (Undistortion & Resize)
+            # Compile Pass 2 shaders (Undistortion)
             vs2 = pyglet.graphics.shader.Shader(vertex_shader_source, 'vertex')
             fs2 = pyglet.graphics.shader.Shader(undistort_fragment_source, 'fragment')
             self.undistort_shader = pyglet.graphics.shader.ShaderProgram(vs2, fs2)
             
-            print("Multi-pass shaders loaded and compiled successfully")
+            # Compile Pass 3 shaders (Resize)
+            vs3 = pyglet.graphics.shader.Shader(vertex_shader_source, 'vertex')
+            fs3 = pyglet.graphics.shader.Shader(resize_fragment_source, 'fragment')
+            self.resize_shader = pyglet.graphics.shader.ShaderProgram(vs3, fs3)
+            
+            print("Three-pass shaders loaded and compiled successfully")
             
         except Exception as e:
             print(f"Failed to load/compile multi-pass shaders: {e}")
@@ -242,10 +251,31 @@ class GPUPreprocessor:
         if glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE:
             raise Exception("Demosaic framebuffer is not complete!")
 
-        # --- PASS 2 TEXTURES & FRAMEBUFFER (RGB -> Undistorted & Resized) ---
+        # --- PASS 2 TEXTURES & FRAMEBUFFER (RGB -> RGB Undistorted) ---
         
         # Upload remap textures for undistortion
         self._upload_remap_maps_to_gpu()
+
+        # Intermediate undistorted texture (full size)
+        self.undistorted_texture_id = GLuint()
+        glGenTextures(1, self.undistorted_texture_id)
+        glBindTexture(GL_TEXTURE_2D, self.undistorted_texture_id)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB8, self.bayer_width, self.bayer_height, 0, GL_RGB, GL_UNSIGNED_BYTE, None)
+
+        # Framebuffer for Pass 2 (Undistortion)
+        self.undistort_fbo = GLuint()
+        glGenFramebuffers(1, self.undistort_fbo)
+        glBindFramebuffer(GL_FRAMEBUFFER, self.undistort_fbo)
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, self.undistorted_texture_id, 0)
+        
+        if glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE:
+            raise Exception("Undistort framebuffer is not complete!")
+
+        # --- PASS 3 TEXTURES & FRAMEBUFFER (RGB Undistorted -> RGB Resized) ---
 
         # Final output texture (target size)
         self.output_texture_id = GLuint()
@@ -257,14 +287,14 @@ class GPUPreprocessor:
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB8, self.target_width, self.target_height, 0, GL_RGB, GL_UNSIGNED_BYTE, None)
 
-        # Framebuffer for Pass 2 (Undistortion & Resize)
-        self.undistort_fbo = GLuint()
-        glGenFramebuffers(1, self.undistort_fbo)
-        glBindFramebuffer(GL_FRAMEBUFFER, self.undistort_fbo)
+        # Framebuffer for Pass 3 (Resize)
+        self.resize_fbo = GLuint()
+        glGenFramebuffers(1, self.resize_fbo)
+        glBindFramebuffer(GL_FRAMEBUFFER, self.resize_fbo)
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, self.output_texture_id, 0)
         
         if glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE:
-            raise Exception("Undistort framebuffer is not complete!")
+            raise Exception("Resize framebuffer is not complete!")
         
         # Reset to default framebuffer
         glBindFramebuffer(GL_FRAMEBUFFER, 0)
@@ -278,7 +308,7 @@ class GPUPreprocessor:
         # Initialize Pixel Buffer Objects for async readback
         self._initialize_pbos()
         
-        print("Multi-pass OpenGL objects initialized successfully")
+        print("Three-pass OpenGL objects initialized successfully")
         glDisable(GL_DITHER)
         
         # Initialize Pixel Buffer Objects for async readback
@@ -414,9 +444,10 @@ class GPUPreprocessor:
 
     def process_frame(self, bayer_frame):
         """
-        Processes a single raw Bayer frame on the GPU using multi-pass rendering.
+        Processes a single raw Bayer frame on the GPU using three-pass rendering.
         Pass 1: Bayer -> RGB (Demosaicing)  
-        Pass 2: RGB -> Undistorted & Resized
+        Pass 2: RGB -> RGB Undistorted (same size)
+        Pass 3: RGB Undistorted -> RGB Resized (target size)
         
         :param bayer_frame: NumPy Array (height, width) of the raw Bayer frame.
         :return: Processed NumPy Array (target_height, target_width, 3) in BGR format.
@@ -471,11 +502,11 @@ class GPUPreprocessor:
             glBindVertexArray(self.vao)
             glDrawArrays(GL_TRIANGLE_FAN, 0, 4)
 
-            # --- PASS 2: RGB -> UNDISTORTED & RESIZED ---
+            # --- PASS 2: RGB -> RGB UNDISTORTED (SAME SIZE) ---
             
-            # 3. Render Pass 2: Undistortion and Resize
+            # 3. Render Pass 2: Undistortion only
             glBindFramebuffer(GL_FRAMEBUFFER, self.undistort_fbo)
-            glViewport(0, 0, self.target_width, self.target_height)  # Target size
+            glViewport(0, 0, self.bayer_width, self.bayer_height)  # Same size as input
             
             self.undistort_shader.use()
             
@@ -506,17 +537,52 @@ class GPUPreprocessor:
                 if map2_texture_location != -1:
                     glUniform1i(map2_texture_location, 2)   # Texture unit 2
                 
-                # Set size uniforms
+                # Set size uniforms (only rgbSize for Pass 2)
                 rgb_size_location = glGetUniformLocation(program_id, b"rgbSize")
-                target_size_location = glGetUniformLocation(program_id, b"targetSize")
                 
                 if rgb_size_location != -1:
                     glUniform2f(rgb_size_location, float(self.bayer_width), float(self.bayer_height))
+                    
+            except Exception as e:
+                print(f"Warning: Could not set Pass 2 uniform variables: {e}")
+            
+            # Render to undistorted texture
+            glBindVertexArray(self.vao)
+            glDrawArrays(GL_TRIANGLE_FAN, 0, 4)
+
+            # --- PASS 3: RGB UNDISTORTED -> RGB RESIZED ---
+            
+            # 4. Render Pass 3: Resize
+            glBindFramebuffer(GL_FRAMEBUFFER, self.resize_fbo)
+            glViewport(0, 0, self.target_width, self.target_height)  # Target size
+            
+            self.resize_shader.use()
+            
+            # Bind undistorted texture from Pass 2
+            glActiveTexture(GL_TEXTURE0)
+            glBindTexture(GL_TEXTURE_2D, self.undistorted_texture_id)
+            
+            # Set uniforms for Pass 3
+            try:
+                program_id = self.resize_shader.id if hasattr(self.resize_shader, 'id') else self.resize_shader._program_id
+                
+                # Set texture sampler
+                undistorted_texture_location = glGetUniformLocation(program_id, b"undistortedTexture")
+                
+                if undistorted_texture_location != -1:
+                    glUniform1i(undistorted_texture_location, 0)  # Texture unit 0
+                
+                # Set size uniforms
+                undistorted_size_location = glGetUniformLocation(program_id, b"undistortedSize")
+                target_size_location = glGetUniformLocation(program_id, b"targetSize")
+                
+                if undistorted_size_location != -1:
+                    glUniform2f(undistorted_size_location, float(self.bayer_width), float(self.bayer_height))
                 if target_size_location != -1:
                     glUniform2f(target_size_location, float(self.target_width), float(self.target_height))
                     
             except Exception as e:
-                print(f"Warning: Could not set Pass 2 uniform variables: {e}")
+                print(f"Warning: Could not set Pass 3 uniform variables: {e}")
             
             # Render to final output texture
             glBindVertexArray(self.vao)
@@ -524,7 +590,7 @@ class GPUPreprocessor:
 
             # --- READBACK FINAL RESULT ---
             
-            # Keep the undistort framebuffer bound for readback
+            # Keep the resize framebuffer bound for readback
             # 4. Asynchronous readback using PBOs
             if self.pbo_initialized:
                 # Use ping-pong PBOs for async transfer

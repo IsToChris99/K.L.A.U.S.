@@ -31,8 +31,8 @@ class CombinedTracker:
         self.goal_scorer = GoalScorer()
         
         # Calibration mode - only activate on key press
-        self.calibration_mode = False
-        self.calibration_requested = False
+        self.calibration_mode = True
+        self.calibration_requested = True
         
         # Initialize IDS Camera instead of VideoStream
         self.camera = IDS_Camera()
@@ -173,7 +173,7 @@ class CombinedTracker:
                 self.field_detector.calibrate(frame)
                 after_calibration = time.perf_counter_ns()
                 calibration_time = (after_calibration - before_calibration) / 1e9
-                print(f'\rCalibration attempt took: {calibration_time:.4f} seconds', end='')
+                # print(f'\rCalibration attempt took: {calibration_time:.4f} seconds', end='')
             
             # Store current field data
             with self.result_lock:
@@ -441,7 +441,7 @@ class CombinedTracker:
                         max_time_ms = max(processing_times)
                         # Calculate theoretical max FPS based on preprocessing time
                         theoretical_fps = 1000.0 / avg_time_ms if avg_time_ms > 0 else 0
-                        print(f"\rPreprocessing: {avg_time_ms:.2f}ms avg (min: {min_time_ms:.2f}, max: {max_time_ms:.2f}) | Theoretical FPS: {theoretical_fps:.1f} | Samples: {len(processing_times)}", end="")
+                        #print(f"\rPreprocessing: {avg_time_ms:.2f}ms avg (min: {min_time_ms:.2f}, max: {max_time_ms:.2f}) | Theoretical FPS: {theoretical_fps:.1f} | Samples: {len(processing_times)}", end="")
                     last_stats_time = current_time
 
                 # Store processed frame for display

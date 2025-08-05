@@ -49,8 +49,10 @@ class FieldDetector:
         self.previous_ema_corners = None
         
         # Pre-compute morphological kernels (Performance-Optimierung)
-        self.kernel_close = cv2.getStructuringElement(cv2.MORPH_RECT, (3 * int(WIDTH_RATIO), 3 * int(HEIGHT_RATIO)))
+        self.kernel_close = cv2.getStructuringElement(cv2.MORPH_RECT, (5 * int(WIDTH_RATIO), 5 * int(HEIGHT_RATIO)))
         self.kernel_open = cv2.getStructuringElement(cv2.MORPH_RECT, (3 * int(WIDTH_RATIO), 3 * int(HEIGHT_RATIO)))
+
+        self.counter = 0
 
     def detect_field(self, frame):
         """Detects field and returns contours"""
@@ -68,8 +70,13 @@ class FieldDetector:
 
         contours = cv2.findContours(marker_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)[-2]
 
+        # Debug: Zeige die Maske an (DEAKTIVIERT für Performance)
+        cv2.imshow('Field Mask Debug', marker_mask)
+        cv2.waitKey(1)  # Kurzes Warten für die Anzeige
+
         if len(contours) != 4:
-            print(f"Detected {len(contours)} contours, expected 4.")
+            self.counter += 1
+            print(f"\rDetected {len(contours)} contours, expected 4. Counter: {self.counter}", end="")
             return None
 
         # Alle weißen Pixel finden
@@ -101,9 +108,7 @@ class FieldDetector:
         # Die vier Eckpunkte als field_corners setzen
         field_corners = np.array([top_left, top_right, bottom_right, bottom_left])
 
-        # Debug: Zeige die Maske an (DEAKTIVIERT für Performance)
-        cv2.imshow('Field Mask Debug', marker_mask)
-        cv2.waitKey(1)  # Kurzes Warten für die Anzeige
+
         
         return field_corners
     
@@ -273,7 +278,7 @@ class FieldDetector:
             else:
                 # Verwende EMA statt einfachen Mittelwert für current_avg
                 if self.previous_ema_corners is not None:
-                    ema_factor = 2
+                    ema_factor = 10
                     ema_field_corners = (field_corners * (ema_factor / (1 + len(self.corner_queue)))) + (self.previous_ema_corners * (1 - (ema_factor / (1 + len(self.corner_queue)))))
                 # else:
                 #     # Beim ersten Mal: verwende aktuellen Wert
