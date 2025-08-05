@@ -434,7 +434,7 @@ class CombinedTracker:
                 # Process frame based on selected mode
                 if self.use_gpu_processing:
                     try:
-                        frame = self.gpu_preprocessor.process_frame(bayer_frame)
+                        frame, _ = self.gpu_preprocessor.process_frame(bayer_frame)
                     except Exception as e:
                         print(f"\nGPU processing failed, falling back to CPU: {e}")
                         self.use_gpu_processing = False
@@ -457,7 +457,7 @@ class CombinedTracker:
                         max_time_ms = max(processing_times)
                         # Calculate theoretical max FPS based on preprocessing time
                         theoretical_fps = 1000.0 / avg_time_ms if avg_time_ms > 0 else 0
-                        #print(f"\rPreprocessing: {avg_time_ms:.2f}ms avg (min: {min_time_ms:.2f}, max: {max_time_ms:.2f}) | Theoretical FPS: {theoretical_fps:.1f} | Samples: {len(processing_times)}", end="")
+                        print(f"\rPreprocessing: {avg_time_ms:.2f}ms avg (min: {min_time_ms:.2f}, max: {max_time_ms:.2f}) | Theoretical FPS: {theoretical_fps:.1f} | Samples: {len(processing_times)}", end="")
                     last_stats_time = current_time
 
                 # Store processed frame for display

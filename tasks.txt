@@ -38,7 +38,7 @@ Camera
 ==============================================================================
 
 Camera readout:
-    -   Camera readout is too slow due to resize and camera calibration. (Tim) 🔄 (Undistortion is missing in gpu_preprocessor shader, wrong CPU undistortion due to resize)
+    -   ✅ Camera readout is too slow due to resize and camera calibration. (Tim) (Undistortion is missing in gpu_preprocessor shader, wrong CPU undistortion due to resize)
     -   Add config variables CAM_WIDTH, CAM_HEIGHT, CAM_X_OFFSET, CAM_Y_OFFSET to initialization of camera setttings in imput/ids_camera.py (Tim)
     -   Make ids_camera.py settings controllable from config and during runtime (Tim)
 
