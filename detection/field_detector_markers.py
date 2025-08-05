@@ -46,6 +46,9 @@ class FieldDetector:
         # Queue für Eckpunkt-Stabilisierung
         self.corner_queue = deque(maxlen=20)
         
+        # EMA: Speicher für vorherigen EMA-Wert
+        self.previous_ema_corners = None
+        
         # Pre-compute morphological kernels (Performance-Optimierung)
         self.kernel_close = cv2.getStructuringElement(cv2.MORPH_RECT, (3 * int(WIDTH_RATIO), 3 * int(HEIGHT_RATIO)))
         self.kernel_open = cv2.getStructuringElement(cv2.MORPH_RECT, (3 * int(WIDTH_RATIO), 3 * int(HEIGHT_RATIO)))
@@ -100,8 +103,8 @@ class FieldDetector:
         field_corners = np.array([top_left, top_right, bottom_right, bottom_left])
 
         # Debug: Zeige die Maske an (DEAKTIVIERT für Performance)
-        # cv2.imshow('Field Mask Debug', marker_mask)
-        # cv2.waitKey(1)  # Kurzes Warten für die Anzeige
+        cv2.imshow('Field Mask Debug', marker_mask)
+        cv2.waitKey(1)  # Kurzes Warten für die Anzeige
         
         return field_corners
     
@@ -264,22 +267,34 @@ class FieldDetector:
 
             if len(self.corner_queue) < 5:
                 self.corner_queue.append(field_corners)
+                self.previous_ema_corners = field_corners
+                self.new_field_metrics = False
                 return False
             
             else:
-                current_avg = np.mean(self.corner_queue, axis=0)
+                # Verwende EMA statt einfachen Mittelwert für current_avg
+                if self.previous_ema_corners is not None:
+                    ema_factor = 2
+                    ema_field_corners = (field_corners * (ema_factor / (1 + len(self.corner_queue)))) + (self.previous_ema_corners * (1 - (ema_factor / (1 + len(self.corner_queue)))))
+                # else:
+                #     # Beim ersten Mal: verwende aktuellen Wert
+                #     ema_field_corners = field_corners
                 
                 max_deviation = 0
                 for i in range(4):  # For each corner
-                    deviation = np.linalg.norm(field_corners[i] - current_avg[i])
+                    deviation = np.linalg.norm(self.previous_ema_corners[i] - ema_field_corners[i])
                     max_deviation = max(max_deviation, deviation)
                 
-                if (max_deviation > 20 or max_deviation <= 3) and self.calibrated:
+                if (max_deviation > 20 or max_deviation <= 1) and self.calibrated:
+                    self.new_field_metrics = False
                     return True
                 
                 self.corner_queue.append(field_corners)
-                
-            avg_field_corners = np.median(self.corner_queue, axis=0)
+            
+            # Speichere aktuellen EMA für nächste Iteration
+            self.previous_ema_corners = ema_field_corners
+
+            avg_field_corners = ema_field_corners
 
             metrics = self.calculate_field_metrics(avg_field_corners, frame)
             goals = self.detect_goals(frame, metrics['corners'])
@@ -287,6 +302,7 @@ class FieldDetector:
             self.field_corners = avg_field_corners
             self.goals = goals
             self.calibrated = True
+            self.new_field_metrics = True
 
             return True
         return False

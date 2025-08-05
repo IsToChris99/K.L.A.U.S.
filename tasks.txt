@@ -21,10 +21,10 @@ Field detection:
     -   ✅ Visible bounding box is not the same box that is used for the mask in which the ball is detected (Joshua)
     -   ✅ Find field via colored marker
     -   When a loaded calibration is active, the ball is detected outside of the bounds
-    -   🔄Es soll jeden Frame neu kalibriert werden, soll aber nicht angewendet werden, sondern erst wenn die Ecken um ca. 3 Pixel verschoben sind.
+    -   ✅ Es soll jeden Frame neu kalibriert werden, soll aber nicht angewendet werden, sondern erst wenn die Ecken um ca. 3 Pixel verschoben sind.
         Dann sollen die Transformationsmatrizen neu errechnet werden und die Punkte Eckpunkte neu gesetzt werden. (Das muss alles interpoliert werden (Matrix ema, punkte normal))
-    -   🔄 Field still jitters due to noise. Try to fix if condition in calibrate() to eliviate that.
-    -   Return Boolean that signals if the matricies have been updated in the last frame. Boolean is true if matricies have been updated and false if they are the same as in last frame
+    -   Field still jitters due to noise. Try to fix if condition in calibrate() to eliviate that.
+    -   ✅ Return Boolean that signals if the matricies have been updated in the last frame. Boolean is true if matricies have been updated and false if they are the same as in last frame
 
 Ball detection:
     -   🔄 Ball trail lags behind due to kalman prediction (Joshua)
