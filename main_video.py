@@ -21,9 +21,6 @@ from config import (
 # ================== COMBINED TRACKER ==================
 
 class CombinedTracker:
-
-    
-
     """Combined Ball and Field Tracker with Multithreading"""
     
     def __init__(self, video_path=None):
@@ -162,6 +159,7 @@ class CombinedTracker:
 
     def field_tracking_thread(self):
         """Thread for Field-Tracking"""
+        local_frame_count = 0
         while self.running:
             try:
                 frame = self.frame_queue.get(timeout=1.0)
@@ -169,19 +167,16 @@ class CombinedTracker:
                     break
             except Empty:
                 continue
-            
-            # Use FieldDetector's calibration logic - try to calibrate every frame
+
+            # Optimierte Kalibrierung - jetzt schnell genug für jeden Frame
             if self.calibration_mode:
                 before_calibration = time.perf_counter_ns()
                 self.field_detector.calibrate(frame)
-                
                 after_calibration = time.perf_counter_ns()
                 calibration_time = (after_calibration - before_calibration) / 1e9
-                # Only print calibration time occasionally to avoid spam
-                if self.field_detector.stable_detection_counter % 50 == 0:
-                    print(f'\rCalibration attempt took: {calibration_time:.4f} seconds, stable: {self.field_detector.stable_detection_counter}', end='')
-            
-            # Store current field data
+                print(f'\rCalibration attempt took: {calibration_time:.4f} seconds', end='')
+
+            # Store current field data (sehr schnell, blockiert nicht)
             with self.result_lock:
                 self.field_data = {
                     'calibrated': self.field_detector.calibrated,
@@ -260,7 +255,7 @@ class CombinedTracker:
         if field_data_copy['field_corners'] is not None:
             for i, corner in enumerate(field_data_copy['field_corners']):
                 corner_int = (int(corner[0]), int(corner[1]))
-                cv2.circle(frame, corner_int, 8, COLOR_FIELD_CORNERS, -1)
+                cv2.circle(frame, corner_int, 2, COLOR_FIELD_CORNERS, -1)
                 cv2.putText(frame, f"{i+1}", (int(corner[0])+10, int(corner[1])-10),
                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, COLOR_FIELD_CORNERS, 2)
 
@@ -285,7 +280,7 @@ class CombinedTracker:
         if (field_data_copy['calibrated'] and 
             field_data_copy.get('field_corners') is not None):
             field_corners_int = np.array(field_data_copy['field_corners'], dtype=np.int32)
-            cv2.drawContours(frame, [field_corners_int], -1, COLOR_FIELD_BOUNDS, 2)
+            cv2.drawContours(frame, [field_corners_int], -1, COLOR_FIELD_BOUNDS, 1)
 
 
         # # Calibration info

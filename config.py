@@ -2,7 +2,7 @@
 
 # ================== VIDEO & CAMERA SETTINGS ==================
 # VIDEO_PATH = "C:\\Users\\Tim\\OneDrive - TH Köln\\03_Hochschule\\6_Semester\\Kicker_Projekt\\Test-Videos\\IDS_Cam2\\08.avi"
-VIDEO_PATH = "C:\\Users\\joshu\\OneDrive - TH Köln\\Kicker (Kicker Klaus) - General\\Kicker_Videos\\2025-07-31_IDS_Cam_250fps_mit_neuen_Figuren\\14.avi"
+VIDEO_PATH = "C:\\Users\\joshu\\OneDrive - TH Köln\\Kicker (Kicker Klaus) - General\\Kicker_Videos\\2025-07-31_IDS_Cam_250fps_mit_neuen_Figuren\\13.avi"
 IS_LIVE = False
 
 CAM_WIDTH = 1440
@@ -63,11 +63,11 @@ BALL_UPPER_ALT = (40, 255, 255)
 # FIELD_GREEN_UPPER_ALT = (100, 255, 100)
 
 # Farbeinstellungen für grünes Spielfeld (HSV)
-FIELD_MARKER_LOWER = (55, 80, 30)
+FIELD_MARKER_LOWER = (55, 80, 60)
 FIELD_MARKER_UPPER = (70, 255, 255)
 
 # Alternative Farbwerte für verschiedene Beleuchtungen
-FIELD_MARKER_LOWER_ALT = (55, 100, 40)
+FIELD_MARKER_LOWER_ALT = (55, 100, 60)
 FIELD_MARKER_UPPER_ALT = (70, 255, 255)
 
 # Goals (bright/white areas) - unused at the moment

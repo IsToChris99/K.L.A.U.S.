@@ -43,9 +43,13 @@ class FieldDetector:
         # Calibration data save/load
         self.calibration_file = FIELD_CALIBRATION_FILE
 
-        # Queue für Eckpunkt-Stabilisierung (maximal 5 Frames)
+        # Queue für Eckpunkt-Stabilisierung
         self.corner_queue = deque(maxlen=20)
         
+        # Pre-compute morphological kernels (Performance-Optimierung)
+        self.kernel_close = cv2.getStructuringElement(cv2.MORPH_RECT, (3 * int(WIDTH_RATIO), 3 * int(HEIGHT_RATIO)))
+        self.kernel_open = cv2.getStructuringElement(cv2.MORPH_RECT, (3 * int(WIDTH_RATIO), 3 * int(HEIGHT_RATIO)))
+
     def detect_field(self, frame):
         """Detects field and returns contours"""
 
@@ -56,45 +60,48 @@ class FieldDetector:
         mask2 = cv2.inRange(hsv, self.field_lower_alt, self.field_upper_alt)
         marker_mask = cv2.bitwise_or(mask1, mask2)
 
-        # Morphologische Operationen anwenden
-        kernel_close = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-        kernel_open = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+        # Morphologische Operationen anwenden (verwende vorkompilierte Kernel)
+        marker_mask = cv2.morphologyEx(marker_mask, cv2.MORPH_CLOSE, self.kernel_close)
+        marker_mask = cv2.morphologyEx(marker_mask, cv2.MORPH_OPEN, self.kernel_open)
 
-        marker_mask = cv2.morphologyEx(marker_mask, cv2.MORPH_CLOSE, kernel_close)
-        marker_mask = cv2.morphologyEx(marker_mask, cv2.MORPH_OPEN, kernel_open)
+        contours = cv2.findContours(marker_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)[-2]
+
+        if len(contours) != 4:
+            print(f"Detected {len(contours)} contours, expected 4.")
+            return None
 
         # Alle weißen Pixel finden
         white_pixels = np.column_stack(np.where(marker_mask == 255))
         
         if len(white_pixels) < 4:
-            return None, marker_mask
+            return None
         
-        # Die vier Extrempunkte finden (am weitesten voneinander entfernt)
+        # Optimierte Extrempunkt-Berechnung (vektorisiert)
         # Koordinaten sind in (y, x) Format von np.where, also umkehren zu (x, y)
         white_pixels_xy = white_pixels[:, [1, 0]]  # Von (y,x) zu (x,y)
         
-        # Top-left: minimale Summe von x+y
-        top_left_idx = np.argmin(white_pixels_xy[:, 0] + white_pixels_xy[:, 1])
-        top_left = white_pixels_xy[top_left_idx]
+        # Alle Berechnungen auf einmal (vektorisiert für bessere Performance)
+        x_coords = white_pixels_xy[:, 0]
+        y_coords = white_pixels_xy[:, 1]
         
-        # Top-right: minimale Differenz von y-x (maximales x bei kleinem y)
-        top_right_idx = np.argmin(white_pixels_xy[:, 1] - white_pixels_xy[:, 0])
-        top_right = white_pixels_xy[top_right_idx]
+        # Top-left: minimale Summe von x+y
+        top_left = white_pixels_xy[np.argmin(x_coords + y_coords)]
+        
+        # Top-right: minimale Differenz von y-x
+        top_right = white_pixels_xy[np.argmin(y_coords - x_coords)]
         
         # Bottom-right: maximale Summe von x+y
-        bottom_right_idx = np.argmax(white_pixels_xy[:, 0] + white_pixels_xy[:, 1])
-        bottom_right = white_pixels_xy[bottom_right_idx]
+        bottom_right = white_pixels_xy[np.argmax(x_coords + y_coords)]
         
-        # Bottom-left: maximale Differenz von y-x (minimales x bei großem y)
-        bottom_left_idx = np.argmax(white_pixels_xy[:, 1] - white_pixels_xy[:, 0])
-        bottom_left = white_pixels_xy[bottom_left_idx]
+        # Bottom-left: maximale Differenz von y-x
+        bottom_left = white_pixels_xy[np.argmax(y_coords - x_coords)]
         
         # Die vier Eckpunkte als field_corners setzen
         field_corners = np.array([top_left, top_right, bottom_right, bottom_left])
 
-        # Debug: Zeige die Maske an
-        cv2.imshow('Field Mask Debug', marker_mask)
-        cv2.waitKey(1)  # Kurzes Warten für die Anzeige
+        # Debug: Zeige die Maske an (DEAKTIVIERT für Performance)
+        # cv2.imshow('Field Mask Debug', marker_mask)
+        # cv2.waitKey(1)  # Kurzes Warten für die Anzeige
         
         return field_corners
     
@@ -250,6 +257,7 @@ class FieldDetector:
     
     def calibrate(self, frame):
         """Performs field calibration"""
+                
         field_corners = self.detect_field(frame)
 
         if field_corners is not None:
@@ -267,7 +275,6 @@ class FieldDetector:
                     max_deviation = max(max_deviation, deviation)
                 
                 if (max_deviation > 20 or max_deviation <= 3) and self.calibrated:
-                    print({max_deviation})
                     return True
                 
                 self.corner_queue.append(field_corners)

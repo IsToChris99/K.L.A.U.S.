@@ -173,11 +173,13 @@ class CombinedTracker:
             except Empty:
                 continue
             
-            # Use FieldDetector's calibration logic
-            if (self.calibration_requested and 
-                self.calibration_mode and 
-                not self.field_detector.calibrated):
+            # Optimierte Kalibrierung - jetzt schnell genug für jeden Frame
+            if self.calibration_mode:
+                before_calibration = time.perf_counter_ns()
                 self.field_detector.calibrate(frame)
+                after_calibration = time.perf_counter_ns()
+                calibration_time = (after_calibration - before_calibration) / 1e9
+                print(f'\rCalibration attempt took: {calibration_time:.4f} seconds', end='')
             
             # Store current field data
             with self.result_lock:
