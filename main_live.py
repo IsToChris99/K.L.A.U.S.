@@ -31,8 +31,8 @@ class CombinedTracker:
         self.goal_scorer = GoalScorer()
         
         # Try to load saved calibration
-        if not self.field_detector.load_calibration():
-            print("No calibration file found. Perform manual calibration...")
+        #if not self.field_detector.load_calibration():
+        #    print("No calibration file found. Perform manual calibration...")
         
         # Calibration mode - only activate on key press
         self.calibration_mode = False
