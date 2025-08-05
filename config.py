@@ -55,12 +55,12 @@ BALL_UPPER_ALT = (40, 255, 255)
 # FIELD_GREEN_UPPER_ALT = (115, 130, 100)
 
 # # Farbeinstellungen für grünes Spielfeld (HSV)
-# FIELD_GREEN_LOWER = (20, 40, 40)
-# FIELD_GREEN_UPPER = (80, 255, 100)
+FIELD_GREEN_LOWER = (20, 40, 40)
+FIELD_GREEN_UPPER = (80, 255, 100)
 
 # # Alternative Farbwerte für verschiedene Beleuchtungen
-# FIELD_GREEN_LOWER_ALT = (35, 30, 30)
-# FIELD_GREEN_UPPER_ALT = (100, 255, 100)
+FIELD_GREEN_LOWER_ALT = (35, 30, 30)
+FIELD_GREEN_UPPER_ALT = (100, 255, 100)
 
 # # Farbeinstellungen für grünes Spielfeld (HSV)
 # FIELD_MARKER_LOWER = ((149/2 - 10), (0.4624*255 - 30), (0.3647*255 - 30))
