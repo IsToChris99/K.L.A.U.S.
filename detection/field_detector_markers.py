@@ -38,7 +38,6 @@ class FieldDetector:
         self.min_field_area = FIELD_MIN_AREA
         self.goal_detection_confidence = GOAL_DETECTION_CONFIDENCE
         self.field_stability_frames = FIELD_STABILITY_FRAMES
-        self.stable_detection_counter = 0
         
         # Calibration data save/load
         self.calibration_file = FIELD_CALIBRATION_FILE

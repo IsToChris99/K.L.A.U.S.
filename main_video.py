@@ -32,10 +32,6 @@ class CombinedTracker:
         self.field_detector = FieldDetector()
         self.goal_scorer = GoalScorer()
         
-        # # Try to load saved calibration
-        # if not self.field_detector.load_calibration():
-        #     print("No calibration file found. Perform manual calibration...")
-        
         # Calibration mode - automatically activate for continuous calibration
         self.calibration_mode = True
         self.calibration_requested = True
@@ -117,8 +113,9 @@ class CombinedTracker:
         
     def ball_tracking_thread(self):
         """Thread for Ball-Tracking"""
-        local_frame_count = 0
+
         while self.running:
+
             try:
                 frame = self.frame_queue.get(timeout=1.0)
                 if frame is None:
@@ -126,7 +123,6 @@ class CombinedTracker:
             except Empty:
                 continue
                 
-            local_frame_count += 1
             
             # Field corners for restricted ball search
             field_corners = None
@@ -159,7 +155,6 @@ class CombinedTracker:
 
     def field_tracking_thread(self):
         """Thread for Field-Tracking"""
-        local_frame_count = 0
         while self.running:
             try:
                 frame = self.frame_queue.get(timeout=1.0)
@@ -182,7 +177,6 @@ class CombinedTracker:
                     'calibrated': self.field_detector.calibrated,
                     'field_corners': self.field_detector.field_corners,
                     'goals': self.field_detector.goals,
-                    'stable_counter': self.field_detector.stable_detection_counter,
                     'calibration_mode': self.calibration_mode,
                     'calibration_requested': self.calibration_requested
                 }
