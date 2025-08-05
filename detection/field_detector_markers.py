@@ -71,8 +71,8 @@ class FieldDetector:
         contours = cv2.findContours(marker_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)[-2]
 
         # Debug: Zeige die Maske an (DEAKTIVIERT für Performance)
-        cv2.imshow('Field Mask Debug', marker_mask)
-        cv2.waitKey(1)  # Kurzes Warten für die Anzeige
+        # cv2.imshow('Field Mask Debug', marker_mask)
+        # cv2.waitKey(1)  # Kurzes Warten für die Anzeige
 
         if len(contours) != 4:
             self.counter += 1

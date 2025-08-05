@@ -131,30 +131,30 @@ class CombinedTracker:
                 if self.field_data['goals']:
                     goals = self.field_data['goals']
 
-            # Ball detection with field_corners
-            detection_result = self.ball_tracker.detect_ball(frame, field_corners)
-            self.ball_tracker.update_tracking(detection_result, field_corners)
+                # Ball detection with field_corners
+                detection_result = self.ball_tracker.detect_ball(frame, field_corners)
+                self.ball_tracker.update_tracking(detection_result, field_corners)
 
 
-            if count % 8 == 0:  # Every 10 frames
-                self.velocity = self.ball_speed.update(detection_result[0], self.timestamp_ns if self.timestamp_ns > 0 else time.perf_counter_ns(), self.px_to_cm_ratio)
-            #print(f"\rBall Velocity: {self.velocity:.2f} cm/s", end="")
+                if count % 8 == 0:  # Every 10 frames
+                    self.velocity = self.ball_speed.update(detection_result[0], self.timestamp_ns if self.timestamp_ns > 0 else time.perf_counter_ns(), self.px_to_cm_ratio)
+                #print(f"\rBall Velocity: {self.velocity:.2f} cm/s", end="")
 
-            # Goal scoring system update
-            ball_position = detection_result[0] if detection_result[0] is not None else None
-            self.goal_scorer.update_ball_tracking(
-                ball_position, 
-                goals, 
-                field_corners, 
-                self.ball_tracker.missing_counter
-            )
-            
-            with self.result_lock:
-                self.ball_result = {
-                    'detection': detection_result,
-                    'smoothed_pts': list(self.ball_tracker.smoothed_pts),
-                    'missing_counter': self.ball_tracker.missing_counter
-                }
+                # Goal scoring system update
+                ball_position = detection_result[0] if detection_result[0] is not None else None
+                self.goal_scorer.update_ball_tracking(
+                    ball_position, 
+                    goals, 
+                    field_corners, 
+                    self.ball_tracker.missing_counter
+                )
+                
+                with self.result_lock:
+                    self.ball_result = {
+                        'detection': detection_result,
+                        'smoothed_pts': list(self.ball_tracker.smoothed_pts),
+                        'missing_counter': self.ball_tracker.missing_counter
+                    }
                 
             
     def field_tracking_thread(self):

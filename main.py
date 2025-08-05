@@ -4,6 +4,7 @@ import threading
 import multiprocessing as mp
 import queue
 import numpy as np
+import cv2
 from PySide6.QtWidgets import QApplication
 
 # Lokale Imports
@@ -34,7 +35,7 @@ class ProcessingProcess(mp.Process):
         # Diese Objekte werden INNERHALB des neuen Prozesses erstellt
         self.ball_detector = None
         self.field_detector = None
-        self.player_detector = None
+        #self.player_detector = None  # TODO: Implementierung ausstehend
         self.preprocessor = None
         self.goal_scorer = None
 
@@ -42,13 +43,12 @@ class ProcessingProcess(mp.Process):
         self.latest_M_persp = np.identity(3)
         self.latest_M_field = np.identity(3)
         
-        # Field bounds für eingeschränkte Ball-Suche
-        self.field_bounds = None
+        # Field corners für eingeschränkte Ball-Suche
+        self.field_corners = None
         self.goals = []
         
-        # Calibration state
+        # Calibration state - Always active like in main_live.py
         self.calibration_mode = True
-        self.calibration_requested = True
 
     def run(self):
         """Die Hauptschleife des Verarbeitungsprozesses."""
@@ -77,7 +77,12 @@ class ProcessingProcess(mp.Process):
                 continue
 
             # 2. Preprocessing (Warp) mit der Matrix vom VORHERIGEN Frame
-            preprocessed_frame = self.preprocessor.process_frame(raw_frame)
+            # CPUPreprocessor gibt (resized_frame, undist_frame) zurück - wir nehmen das erste
+            preprocessed_result = self.preprocessor.process_frame(raw_frame)
+            if isinstance(preprocessed_result, tuple):
+                preprocessed_frame = preprocessed_result[0]  # resized_frame für die Verarbeitung
+            else:
+                preprocessed_frame = preprocessed_result
             
             # 3. Starte alle drei Erkennungen parallel mit Threads
             results = {}
@@ -114,60 +119,67 @@ class ProcessingProcess(mp.Process):
                     results['px_to_cm_ratio'] = 0
 
             def ball_task():
-                return
-                # # Arbeitet auf dem vorverarbeiteten Frame mit Field-Bounds
-                # detection_result = self.ball_detector.detect_ball(preprocessed_frame, self.field_bounds)
-                # self.ball_detector.update_tracking(detection_result, self.field_bounds)
+                # Field corners für eingeschränkte Ball-Suche (wie in main_live.py)
+                field_corners = None
+                goals = []
+                if results.get('goals'):
+                    goals = results['goals']
                 
-                # # Goal scoring system update
-                # ball_position = detection_result[0] if detection_result[0] is not None else None
-                # self.goal_scorer.update_ball_tracking(
-                #     ball_position, 
-                #     self.goals, 
-                #     self.field_bounds, 
-                #     self.ball_detector.missing_counter
-                # )
+                # Ball detection with field_corners (wie in main_live.py)
+                detection_result = self.ball_detector.detect_ball(preprocessed_frame, self.field_corners)
+                self.ball_detector.update_tracking(detection_result, self.field_corners)
+
+                # Goal scoring system update (wie in main_live.py)
+                ball_position = detection_result[0] if detection_result[0] is not None else None
+                self.goal_scorer.update_ball_tracking(
+                    ball_position, 
+                    goals, 
+                    field_corners, 
+                    self.ball_detector.missing_counter
+                )
                 
-                # results['ball_data'] = {
-                #     'detection': detection_result,
-                #     'smoothed_pts': list(self.ball_detector.smoothed_pts),
-                #     'missing_counter': self.ball_detector.missing_counter,
-                #     'ball_position': ball_position
-                # }
+                # Ball-Ergebnisse in results speichern (wie in main_live.py)
+                results['ball_data'] = {
+                    'detection': detection_result,
+                    'smoothed_pts': list(self.ball_detector.smoothed_pts),
+                    'missing_counter': self.ball_detector.missing_counter,
+                    'ball_position': ball_position
+                }
                 
-                # # Check for goals
-                # score = self.goal_scorer.get_score()
-                # results['score'] = score
+                # Check for goals
+                score = self.goal_scorer.get_score()
+                results['score'] = score
 
             def player_task():
-                # Arbeitet auf dem vorverarbeiteten Frame
-                #player_data = self.player_detector.detect(preprocessed_frame)
-                #results['player_data'] = player_data
+                # TODO: Player-Erkennung noch nicht implementiert
+                # player_data = self.player_detector.detect(preprocessed_frame)
+                # results['player_data'] = player_data
+                results['player_data'] = None  # Placeholder
                 return
 
             # --- Threads erstellen und starten ---
             thread_field = threading.Thread(target=field_task)
             thread_ball = threading.Thread(target=ball_task)
-            thread_player = threading.Thread(target=player_task)
+            #thread_player = threading.Thread(target=player_task)  # TODO: Player-Erkennung auskommentiert
             
             thread_field.start()
             thread_ball.start()
-            thread_player.start()
+            #thread_player.start()  # TODO: Player-Erkennung auskommentiert
             
-            # --- Warten, bis alle Threads für diesen Frame fertig sind ---
+            # --- Wait for both threads to complete ---
             thread_field.join()
             thread_ball.join()
-            thread_player.join()
+            #thread_player.join()  # TODO: Player-Erkennung auskommentiert
 
             # 4. Aktualisiere die Matrizen und Field-Daten für den NÄCHSTEN Frame
             if results.get('M_persp') is not None:
                 self.latest_M_persp = results['M_persp']
             if results.get('M_field') is not None:
                 self.latest_M_field = results['M_field']
-            
-            # Update field bounds and goals for next iteration
-            if results.get('field_bounds') is not None:
-                self.field_bounds = results['field_bounds']
+
+            # Update field corners and goals for next iteration
+            if results.get('field_corners') is not None:
+                self.field_corners = results['field_corners']
             if results.get('goals') is not None:
                 self.goals = results['goals']
                 
@@ -185,8 +197,7 @@ class ProcessingProcess(mp.Process):
                     'field_bounds': results.get('field_bounds'),
                     'field_rect_points': results.get('field_rect_points'),
                     'goals': results.get('goals', []),
-                    'calibration_mode': self.calibration_mode,
-                    'calibration_requested': self.calibration_requested
+                    'calibration_mode': self.calibration_mode
                 }
             }
 
@@ -198,16 +209,12 @@ class ProcessingProcess(mp.Process):
     
     def handle_command(self, command):
         """Handle commands from the UI process"""
-        if command.get('type') == 'start_calibration':
-            print("Starting field calibration...")
-            self.calibration_mode = True
-            self.calibration_requested = True
-            if self.field_detector:
-                self.field_detector.calibrated = False
-        elif command.get('type') == 'reset_score':
+        if command.get('type') == 'reset_score':
             print("Resetting score...")
             if self.goal_scorer:
                 self.goal_scorer.reset_score()
+        # Field calibration is now automatic - removed manual calibration commands
+        
         # Add more command types as needed
 
 

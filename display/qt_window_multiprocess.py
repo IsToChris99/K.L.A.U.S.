@@ -115,9 +115,7 @@ class KickerMainWindow(QMainWindow):
         self.frame_count = 0
         self.last_fps_time = time.time()
         
-        # Field calibration state
-        self.calibration_mode = False
-        self.calibration_requested = False
+        # Field calibration is now automatic - no manual state needed
         
         self.setup_ui()
         self.connect_signals()
@@ -456,10 +454,9 @@ class KickerMainWindow(QMainWindow):
         tracking_layout = QVBoxLayout(tracking_group)
         
         self.stop_btn = QPushButton("Stop Processing")
-        self.calibrate_btn = QPushButton("Start Calibration")
+        # Removed calibration button - field detection is now automatic
         
         tracking_layout.addWidget(self.stop_btn)
-        tracking_layout.addWidget(self.calibrate_btn)
         
         return tracking_group
     
@@ -519,7 +516,6 @@ class KickerMainWindow(QMainWindow):
     def connect_signals(self):
         """Connects all button signals to their functions"""
         self.stop_btn.clicked.connect(self.stop_processing)
-        self.calibrate_btn.clicked.connect(self.start_calibration)
         
         self.ball_only_btn.clicked.connect(lambda: self.set_visualization_mode(1))
         self.field_only_btn.clicked.connect(lambda: self.set_visualization_mode(2))
@@ -615,19 +611,25 @@ class KickerMainWindow(QMainWindow):
         smoothed_pts = self.current_ball_data.get('smoothed_pts', [])
         missing_counter = self.current_ball_data.get('missing_counter', 0)
         
-        if detection and detection[0] is not None:
+        if detection[0] is not None:
             center, radius, confidence, velocity = detection
+            center_int = (int(center[0]), int(center[1]))
 
             # Color selection based on confidence
             if confidence >= 0.8:
-                color = config.COLOR_BALL_HIGH_CONFIDENCE
+                color = config.COLOR_BALL_HIGH_CONFIDENCE  # Green
             elif confidence >= 0.6:
-                color = config.COLOR_BALL_MED_CONFIDENCE
+                color = config.COLOR_BALL_MED_CONFIDENCE   # Yellow
             else:
-                color = config.COLOR_BALL_LOW_CONFIDENCE
+                color = config.COLOR_BALL_LOW_CONFIDENCE   # Orange
 
             cv2.circle(frame, center, 3, color, -1)
             cv2.circle(frame, center, int(radius), color, 2)
+
+            cv2.putText(frame, f"R: {radius:.1f}", (center_int[0] + 15, center_int[1] - 15),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
+            cv2.putText(frame, f"Conf: {confidence:.2f}", (center_int[0] + 15, center_int[1] + 5),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1)
 
             # Show Kalman velocity
             if velocity is not None:
@@ -650,44 +652,34 @@ class KickerMainWindow(QMainWindow):
             
         field_data = self.current_field_data
 
-        # Field contour
-        if field_data.get('calibrated') and field_data.get('field_contour') is not None:
-            cv2.drawContours(frame, [field_data['field_contour']], -1, config.COLOR_FIELD_CONTOUR, 3)
-
         # Field corners
         if field_data.get('field_corners') is not None:
             for i, corner in enumerate(field_data['field_corners']):
-                cv2.circle(frame, tuple(corner), 8, config.COLOR_FIELD_CORNERS, -1)
+                corner_int = (int(corner[0]), int(corner[1]))
+                cv2.circle(frame, corner_int, 2, config.COLOR_FIELD_CORNERS, -1)
+                cv2.putText(frame, f"{i+1}", (int(corner[0])+10, int(corner[1])-10),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, config.COLOR_FIELD_CORNERS, 2)
 
         # Goals
         goals = field_data.get('goals', [])
         for i, goal in enumerate(goals):
-            if 'bounds' in goal:
-                x, y, w, h = goal['bounds']
-                cv2.rectangle(frame, (x, y), (x+w, y+h), config.COLOR_GOALS, 2)
+            if goal.get('contour') is not None:
+                cv2.drawContours(frame, [goal['contour']], -1, config.COLOR_GOALS, 2)
+            else:
+                # Fallback to bounding box if contour is not available
+                x, y, w, h = goal.get('bounds', (0, 0, 0, 0))
+                cv2.rectangle(frame, (int(x), int(y)), (int(x+w), int(y+h)), config.COLOR_GOALS, 2)
 
+            # Draw Goal-Center and Label
+            center_x, center_y = goal.get('center', (0, 0))
+            center_int = (int(center_x), int(center_y))
+            cv2.circle(frame, center_int, 5, config.COLOR_GOALS, -1)  
+            #cv2.putText(frame, f"Goal {i+1} ({goal['type']})", (int(center_x)+10, int(center_y)-10),
+            #            cv2.FONT_HERSHEY_SIMPLEX, 0.6, config.COLOR_GOALS, 2)
         # Field limits
-        if (field_data.get('calibrated') and 
-            field_data.get('field_rect_points') is not None):
-            cv2.drawContours(frame, [field_data['field_rect_points']], -1, config.COLOR_FIELD_BOUNDS, 2)
-        elif field_data.get('calibrated') and field_data.get('field_bounds'):
-            x, y, w, h = field_data['field_bounds']
-            cv2.rectangle(frame, (x, y), (x+w, y+h), config.COLOR_FIELD_BOUNDS, 2)
-
-        # Calibration progress
-        if (field_data.get('calibration_requested') and 
-            field_data.get('calibration_mode') and 
-            not field_data.get('calibrated')):
-            progress = min(field_data.get('stable_counter', 0) / 30, 1.0)
-            progress_width = int(300 * progress)
-            
-            cv2.rectangle(frame, (10, 130), (310, 160), (50, 50, 50), -1)
-            cv2.rectangle(frame, (10, 130), (10 + progress_width, 160), (0, 255, 0), -1)
-            cv2.rectangle(frame, (10, 130), (310, 160), (255, 255, 255), 2)
-            
-            # Add calibration text
-            cv2.putText(frame, "Field Calibration...", (15, 125), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+        if (field_data.get('calibrated') and field_data.get('field_corners') is not None):
+            field_corners_int = np.array(field_data['field_corners'], dtype=np.int32)
+            cv2.drawContours(frame, [field_corners_int], -1, config.COLOR_FIELD_BOUNDS, 1)
     
     # ============= SIGNAL HANDLER METHODS =============
     
@@ -697,15 +689,7 @@ class KickerMainWindow(QMainWindow):
         self.running_event.clear()
         self.process_status_label.setText("Process: Stopping...")
         self.add_log_message("Stopping processing...")
-    
-    @Slot()
-    def start_calibration(self):
-        """Starts field calibration by sending command to processing process"""
-        try:
-            self.command_queue.put({'type': 'start_calibration'})
-            self.add_log_message("Field calibration request sent to processing process")
-        except:
-            self.add_log_message("Error: Could not send calibration command")
+
     
     @Slot()
     def set_visualization_mode(self, mode):
