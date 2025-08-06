@@ -35,7 +35,7 @@ class BallDetector:
         
         # Flag to track if we just recovered from a long pause
         self.just_recovered = False
-        
+
         pass
 
     def detect_ball(self, frame, field_corners=None):
@@ -232,14 +232,14 @@ class BallDetector:
                     smoothed_center = center  # Use direct measurement
                     self.kalman_tracker.soft_reset(center)
                 else:
-                    smoothed_center = self.smoother.update(center)
+                    smoothed_center = self.smoother._adaptive_ema_update(center)
             else:
                 # Normal tracking - gradually restore normal smoothing after recovery
                 if self.just_recovered and len(self.recent_detections) >= 3:
                     self.smoother = Smoother(window_size=BALL_SMOOTHER_WINDOW_SIZE)
                     self.just_recovered = False
                 
-                smoothed_center = self.smoother.update(center)
+                smoothed_center = self.smoother._adaptive_ema_update(center)
             
             self.missing_counter = 0
             self.last_good_detection = center
@@ -256,7 +256,7 @@ class BallDetector:
             
             if self.missing_counter <= self.max_missing_frames:
                 if kalman_pos is not None:
-                    smoothed_center = self.smoother.update(kalman_pos)
+                    smoothed_center = self.smoother._adaptive_ema_update(kalman_pos)
                     self.smoothed_pts.appendleft(smoothed_center)
                     
                     if smoothed_center is not None:
@@ -350,28 +350,40 @@ class Smoother:
     """Smoothing for ball positions"""
     def __init__(self, window_size=20):
         self.window_size = window_size
-        self.x_vals = deque()
-        self.y_vals = deque()
-        self.sum_x = 0
-        self.sum_y = 0
-
-    def update(self, point):
-        if point is None:
-            return None
-
-        x, y = point
-        self.x_vals.append(x)
-        self.y_vals.append(y)
-        self.sum_x += x
-        self.sum_y += y
-
-        if len(self.x_vals) > self.window_size:
-            self.sum_x -= self.x_vals.popleft()
-            self.sum_y -= self.y_vals.popleft()
-
-        avg_x = int(self.sum_x / len(self.x_vals))
-        avg_y = int(self.sum_y / len(self.y_vals))
-        return (avg_x, avg_y)
+        
+        # EMA variables (Exponential Moving Average)
+        self.ema_alpha = min(0.8, 2.0 / (window_size + 1))  # Cap alpha at 0.8 for responsiveness
+        self.ema_x = None
+        self.ema_y = None
+        
+        # Adaptive EMA variables
+        self.prev_point = None
+    
+    def _adaptive_ema_update(self, center):
+        """Adaptive EMA that adjusts alpha based on movement speed"""
+        x, y = center
+        if self.ema_x is None:
+            self.ema_x = float(x)
+            self.ema_y = float(y)
+            self.prev_point = (x, y)
+            return (int(x), int(y))
+        
+        # Calculate movement speed
+        if self.prev_point:
+            speed = np.sqrt((x - self.prev_point[0])**2 + (y - self.prev_point[1])**2)
+            # Adaptive alpha: higher speed = higher alpha (less smoothing)
+            max_speed = 30.0  # Reduced from 50 for more responsiveness
+            speed_factor = min(speed / max_speed, 1.0)
+            # More aggressive adaptation: start higher, reach higher maximum
+            adaptive_alpha = max(0.3, self.ema_alpha + speed_factor * (0.9 - self.ema_alpha))
+        else:
+            adaptive_alpha = max(0.3, self.ema_alpha)  # Minimum alpha of 0.3
+        
+        self.ema_x = adaptive_alpha * x + (1 - adaptive_alpha) * self.ema_x
+        self.ema_y = adaptive_alpha * y + (1 - adaptive_alpha) * self.ema_y
+        
+        self.prev_point = (x, y)
+        return (int(self.ema_x), int(self.ema_y))
 
 
 class KalmanBallTracker:

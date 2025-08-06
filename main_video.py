@@ -222,11 +222,6 @@ class CombinedTracker:
                             (255, 0, 255), 2)
         
         # Ball trail drawing
-        
-        # if len(smoothed_pts) >= 64:
-        #     print(f"\rDrawing ball trail with {len(smoothed_pts)} points", end="")
-        #     cv2.line(frame, smoothed_pts[0], smoothed_pts[63], COLOR_BALL_TRAIL, 4)  # Dummy point for trail
-
         for i in range(1, len(smoothed_pts)):
             if smoothed_pts[i - 1] is None or smoothed_pts[i] is None:
                 continue

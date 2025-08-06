@@ -84,7 +84,7 @@ GOAL_UPPER = (180, 255, 255)
 
 # ================== TRACKING PARAMETERS ==================
 # Ball tracking
-BALL_SMOOTHER_WINDOW_SIZE = 1
+BALL_SMOOTHER_WINDOW_SIZE = 500  # Optimized balance between smoothing and responsiveness
 BALL_MAX_MISSING_FRAMES = 100
 BALL_CONFIDENCE_THRESHOLD = 0.6
 
