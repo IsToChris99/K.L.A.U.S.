@@ -47,6 +47,9 @@ class FieldDetector:
         
         # EMA: Speicher für vorherigen EMA-Wert
         self.previous_ema_corners = None
+
+        # Marker Mask
+        self.marker_mask = None
         
         # Pre-compute morphological kernels (Performance-Optimierung)
         self.kernel_close = cv2.getStructuringElement(cv2.MORPH_RECT, (5 * int(WIDTH_RATIO), 5 * int(HEIGHT_RATIO)))
@@ -62,16 +65,16 @@ class FieldDetector:
         # Maske für grüne Marker erstellen
         mask1 = cv2.inRange(hsv, self.field_lower, self.field_upper)
         mask2 = cv2.inRange(hsv, self.field_lower_alt, self.field_upper_alt)
-        marker_mask = cv2.bitwise_or(mask1, mask2)
+        self.marker_mask = cv2.bitwise_or(mask1, mask2)
 
         # Morphologische Operationen anwenden (verwende vorkompilierte Kernel)
-        marker_mask = cv2.morphologyEx(marker_mask, cv2.MORPH_CLOSE, self.kernel_close)
-        marker_mask = cv2.morphologyEx(marker_mask, cv2.MORPH_OPEN, self.kernel_open)
+        self.marker_mask = cv2.morphologyEx(self.marker_mask, cv2.MORPH_CLOSE, self.kernel_close)
+        self.marker_mask = cv2.morphologyEx(self.marker_mask, cv2.MORPH_OPEN, self.kernel_open)
 
-        contours = cv2.findContours(marker_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)[-2]
+        contours = cv2.findContours(self.marker_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)[-2]
 
         # Debug: Zeige die Maske an (DEAKTIVIERT für Performance)
-        # cv2.imshow('Field Mask Debug', marker_mask)
+        # cv2.imshow('Field Mask Debug', self.marker_mask)
         # cv2.waitKey(1)  # Kurzes Warten für die Anzeige
 
         if len(contours) != 4:
@@ -80,8 +83,8 @@ class FieldDetector:
             return None
 
         # Alle weißen Pixel finden
-        white_pixels = np.column_stack(np.where(marker_mask == 255))
-        
+        white_pixels = np.column_stack(np.where(self.marker_mask == 255))
+
         if len(white_pixels) < 4:
             return None
         
