@@ -249,11 +249,6 @@ class FieldDetector:
         if len(src_points_field) == 4:
             self.field_transform_matrix = cv2.getPerspectiveTransform(src_points_field, dst_points_field)
         
-        return {
-            'corners': field_corners,
-            'perspective_transform_matrix': self.perspective_transform_matrix,
-            'field_transform_matrix': self.field_transform_matrix
-        }
     
     def transform_point_to_field_coords(self, point):
         """Transforms a point to field coordinates using the transformation matrix"""
@@ -303,8 +298,8 @@ class FieldDetector:
 
             avg_field_corners = ema_field_corners
 
-            metrics = self.calculate_field_metrics(avg_field_corners, frame)
-            goals = self.detect_goals(frame, metrics['corners'])
+            self.calculate_field_metrics(avg_field_corners, frame)
+            goals = self.detect_goals(frame, self.field_corners)
 
             self.field_corners = avg_field_corners
             self.goals = goals

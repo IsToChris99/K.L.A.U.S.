@@ -55,6 +55,8 @@ class CombinedTracker:
         self.current_bayer_frame = None  # Store raw Bayer frame from camera thread
         self.ball_result = None
         self.field_data = None
+        self.M_persp = None  # Perspective transform matrix
+        self.M_field = None  # Field transform matrix
         
         # Display control variables
         self.frame_count = 0
@@ -175,6 +177,9 @@ class CombinedTracker:
                 calibration_time = (after_calibration - before_calibration) / 1e9
                 # print(f'\rCalibration attempt took: {calibration_time:.4f} seconds', end='')
             
+            self.M_persp = self.field_detector.perspective_transform_matrix
+            self.M_field = self.field_detector.field_transform_matrix
+
             # Store current field data
             with self.result_lock:
                 self.field_data = {
@@ -182,7 +187,9 @@ class CombinedTracker:
                     'field_corners': self.field_detector.field_corners,
                     'goals': self.field_detector.goals,
                     'calibration_mode': self.calibration_mode,
-                    'calibration_requested': self.calibration_requested
+                    'calibration_requested': self.calibration_requested,
+                    'perspective_transform_matrix': self.field_detector.perspective_transform_matrix,
+                    'field_transform_matrix': self.field_detector.field_transform_matrix
                 }
 
 
@@ -476,7 +483,16 @@ class CombinedTracker:
                 if should_display:
                     # Create display frame only when needed
                     display_frame = frame.copy()
-                    
+
+                    if self.M_persp is not None:
+                        display_frame = cv2.warpPerspective(
+                            display_frame, 
+                            self.M_persp, 
+                            (config.DETECTION_WIDTH, config.DETECTION_HEIGHT)
+                        )
+
+                    #print(self.M_persp)
+
                     # Visualization based on mode
                     if self.visualization_mode in [self.BALL_ONLY, self.COMBINED]:
                         self.draw_ball_visualization(display_frame)

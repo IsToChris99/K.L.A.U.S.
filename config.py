@@ -86,7 +86,7 @@ GOAL_UPPER = (180, 255, 255)
 # Ball tracking
 BALL_SMOOTHER_WINDOW_SIZE = 500  # Optimized balance between smoothing and responsiveness
 BALL_MAX_MISSING_FRAMES = 100
-BALL_CONFIDENCE_THRESHOLD = 0.6
+BALL_CONFIDENCE_THRESHOLD = 0.5
 
 # Field tracking
 FIELD_MIN_AREA = 50000  # Minimum field size in pixels
