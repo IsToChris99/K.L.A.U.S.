@@ -30,7 +30,7 @@ Ball detection:
     -   🔄 Ball trail lags behind due to kalman prediction (Joshua)
 
 Player detection:
-    -   Player detection (Tim)
+    -   Player detection (Roman)
 
 
 ==============================================================================
@@ -60,5 +60,8 @@ Ballcurve:
     -   (Show ballcurve on an ideal model of the field)
 
 User Interface:
-    -   Calibration UI with Color Picker Tool for selecting colors in live frame
-    -   Live UI for Play Mode
+    -   🔄 Calibration UI with Color Picker Tool for selecting colors in live frame
+    -   🔄 Live UI for Play Mode
+
+main.py
+    -   Make processing faster by parallel processing. Currently the threads wait on each other.

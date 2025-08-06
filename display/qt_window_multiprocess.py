@@ -111,9 +111,15 @@ class KickerMainWindow(QMainWindow):
         self.player1_goals = 0
         self.player2_goals = 0
         
-        # FPS tracking
-        self.frame_count = 0
-        self.last_fps_time = time.time()
+        # FPS tracking for different components
+        self.display_frame_count = 0
+        self.display_last_fps_time = time.time()
+        
+        # Store latest FPS values from processing
+        self.camera_fps = 0.0
+        self.preprocessing_fps = 0.0
+        self.ball_detection_fps = 0.0
+        self.field_detection_fps = 0.0
         
         # Field calibration is now automatic - no manual state needed
         
@@ -482,6 +488,23 @@ class KickerMainWindow(QMainWindow):
         settings_group = QGroupBox("Settings")
         settings_layout = QVBoxLayout(settings_group)
         
+        # Processing mode toggle
+        processing_layout = QHBoxLayout()
+        processing_label = QLabel("Processing Mode:")
+        processing_layout.addWidget(processing_label)
+        
+        self.processing_mode_checkbox = QCheckBox("Use GPU")
+        self.processing_mode_checkbox.setChecked(True)  # Default to GPU
+        self.processing_mode_checkbox.toggled.connect(self.toggle_processing_mode)
+        processing_layout.addWidget(self.processing_mode_checkbox)
+        
+        # Status label for current processing mode
+        self.processing_status_label = QLabel("GPU")
+        self.processing_status_label.setStyleSheet("color: green; font-weight: bold;")
+        processing_layout.addWidget(self.processing_status_label)
+        
+        settings_layout.addLayout(processing_layout)
+        
         info_label = QLabel("Processing läuft in\nseparatem Prozess")
         info_label.setStyleSheet("color: gray; font-size: 10px;")
         info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -490,15 +513,33 @@ class KickerMainWindow(QMainWindow):
         return settings_group
     
     def create_status_section(self):
-        """Creates the status section"""
-        status_group = QGroupBox("Status")
+        """Creates the status section with detailed FPS displays"""
+        status_group = QGroupBox("Status & Performance")
         status_layout = QVBoxLayout(status_group)
         
         self.process_status_label = QLabel("Process: Running")
-        self.fps_label = QLabel("FPS: 0.0")
+        
+        # Individual FPS labels for different components
+        self.camera_fps_label = QLabel("Camera: 0.0 FPS")
+        self.preprocessing_fps_label = QLabel("Preprocessing: 0.0 FPS")
+        self.ball_detection_fps_label = QLabel("Ball Detection: 0.0 FPS")
+        self.field_detection_fps_label = QLabel("Field Detection: 0.0 FPS")
+        self.display_fps_label = QLabel("Display: 0.0 FPS")
+        
+        # Style the FPS labels
+        fps_style = "color: #2E7D32; font-size: 11px; font-family: monospace;"
+        self.camera_fps_label.setStyleSheet(fps_style)
+        self.preprocessing_fps_label.setStyleSheet(fps_style)
+        self.ball_detection_fps_label.setStyleSheet(fps_style)
+        self.field_detection_fps_label.setStyleSheet(fps_style)
+        self.display_fps_label.setStyleSheet(fps_style)
         
         status_layout.addWidget(self.process_status_label)
-        status_layout.addWidget(self.fps_label)
+        status_layout.addWidget(self.camera_fps_label)
+        status_layout.addWidget(self.preprocessing_fps_label)
+        status_layout.addWidget(self.ball_detection_fps_label)
+        status_layout.addWidget(self.field_detection_fps_label)
+        status_layout.addWidget(self.display_fps_label)
         
         return status_group
     
@@ -565,20 +606,29 @@ class KickerMainWindow(QMainWindow):
                         if new_score1 > self.player1_goals or new_score2 > self.player2_goals:
                             self.add_log_message("Goal detected automatically!")
                 
+                # Update FPS data from processing if available
+                fps_data = result_package.get("fps_data")
+                if fps_data:
+                    self.camera_fps = fps_data.get('camera', 0.0)
+                    self.preprocessing_fps = fps_data.get('preprocessing', 0.0)
+                    self.ball_detection_fps = fps_data.get('ball_detection', 0.0)
+                    self.field_detection_fps = fps_data.get('field_detection', 0.0)
+                    self.update_processing_fps()
+                
                 # Update field data
                 self.current_field_data = result_package.get("field_data")
                 
                 # Update the display
                 self.update_display()
                 
-                # Update FPS
-                self.frame_count += 1
+                # Update Display FPS (how fast GUI receives and displays frames)
+                self.display_frame_count += 1
                 current_time = time.time()
-                if current_time - self.last_fps_time >= 1.0:
-                    fps = self.frame_count / (current_time - self.last_fps_time)
-                    self.update_fps(fps)
-                    self.frame_count = 0
-                    self.last_fps_time = current_time
+                if current_time - self.display_last_fps_time >= 1.0:
+                    display_fps = self.display_frame_count / (current_time - self.display_last_fps_time)
+                    self.update_display_fps(display_fps)
+                    self.display_frame_count = 0
+                    self.display_last_fps_time = current_time
                     
         except:
             # Queue is empty or other error - ignore
@@ -732,6 +782,23 @@ class KickerMainWindow(QMainWindow):
             self.add_log_message("Score reset (local only - could not communicate with processing)")
     
     @Slot()
+    def toggle_processing_mode(self, checked):
+        """Toggle between CPU and GPU preprocessing"""
+        try:
+            self.command_queue.put({'type': 'toggle_processing_mode'})
+            mode = "GPU" if checked else "CPU"
+            self.add_log_message(f"Switched to {mode} processing")
+            
+            # Update status display
+            self.processing_status_label.setText(mode)
+            color = "green" if mode == "GPU" else "orange"
+            self.processing_status_label.setStyleSheet(f"color: {color}; font-weight: bold;")
+        except Exception as e:
+            self.add_log_message(f"Failed to toggle processing mode: {e}")
+            # Revert checkbox state on failure
+            self.processing_mode_checkbox.setChecked(not checked)
+    
+    @Slot()
     def team1_score_plus(self):
         """Increases Player 1 score by 1"""
         if self.matcher.get_mode() == "practice":
@@ -877,9 +944,20 @@ class KickerMainWindow(QMainWindow):
         scrollbar = self.log_text.verticalScrollBar()
         scrollbar.setValue(scrollbar.maximum())
     
+    def update_processing_fps(self):
+        """Updates the processing FPS displays"""
+        self.camera_fps_label.setText(f"Camera: {self.camera_fps:.1f} FPS")
+        self.preprocessing_fps_label.setText(f"Preprocessing: {self.preprocessing_fps:.1f} FPS")
+        self.ball_detection_fps_label.setText(f"Ball Detection: {self.ball_detection_fps:.1f} FPS")
+        self.field_detection_fps_label.setText(f"Field Detection: {self.field_detection_fps:.1f} FPS")
+    
+    def update_display_fps(self, fps):
+        """Updates the display FPS"""
+        self.display_fps_label.setText(f"Display: {fps:.1f} FPS")
+    
     def update_fps(self, fps):
-        """Updates the FPS display"""
-        self.fps_label.setText(f"FPS: {fps:.1f}")
+        """Legacy method - now redirects to display FPS for compatibility"""
+        self.update_display_fps(fps)
     
     def update_score(self, score):
         """Updates the score display"""

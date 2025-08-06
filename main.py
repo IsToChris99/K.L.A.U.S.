@@ -37,7 +37,12 @@ class ProcessingProcess(mp.Process):
         self.field_detector = None
         #self.player_detector = None  # TODO: Implementierung ausstehend
         self.preprocessor = None
+        self.cpu_preprocessor = None
+        self.gpu_preprocessor = None
         self.goal_scorer = None
+        
+        # Processing mode control
+        self.use_gpu_processing = True  # Start with GPU processing by default
 
         # Zustand für den "One-Frame-Lag"
         self.latest_M_persp = np.identity(3)
@@ -49,6 +54,19 @@ class ProcessingProcess(mp.Process):
         
         # Calibration state - Always active like in main_live.py
         self.calibration_mode = True
+        
+        # FPS tracking for different components
+        self.fps_trackers = {
+            'preprocessing': {'count': 0, 'last_time': time.time()},
+            'ball_detection': {'count': 0, 'last_time': time.time()},
+            'field_detection': {'count': 0, 'last_time': time.time()}
+        }
+        self.current_fps = {
+            'camera': 0.0,
+            'preprocessing': 0.0, 
+            'ball_detection': 0.0,
+            'field_detection': 0.0
+        }
 
     def run(self):
         """Die Hauptschleife des Verarbeitungsprozesses."""
@@ -58,7 +76,22 @@ class ProcessingProcess(mp.Process):
         self.ball_detector = BallDetector()
         self.field_detector = FieldDetector()
         #self.player_detector = PlayerDetector()
-        self.preprocessor = CPUPreprocessor()
+        
+        # Initialize both CPU and GPU preprocessors
+        try:
+            self.gpu_preprocessor = GPUPreprocessor()
+            print("GPU preprocessor initialized successfully")
+        except Exception as e:
+            print(f"GPU preprocessor initialization failed: {e}")
+            self.gpu_preprocessor = None
+            self.use_gpu_processing = False
+            
+        self.cpu_preprocessor = CPUPreprocessor()
+        print("CPU preprocessor initialized successfully")
+        
+        # Set active preprocessor based on mode
+        self.preprocessor = self.gpu_preprocessor if self.use_gpu_processing and self.gpu_preprocessor else self.cpu_preprocessor
+        
         self.goal_scorer = GoalScorer()
 
         while self.running_event.is_set():
@@ -72,23 +105,33 @@ class ProcessingProcess(mp.Process):
                 
             try:
                 # 1. Hole den nächsten rohen Frame
-                raw_frame = self.raw_frame_queue.get(timeout=1)
+                raw_data = self.raw_frame_queue.get(timeout=1)
+                
+                # Extract frame and camera FPS if available
+                if isinstance(raw_data, tuple):
+                    raw_frame, camera_fps = raw_data
+                    self.current_fps['camera'] = camera_fps
+                else:
+                    raw_frame = raw_data
             except queue.Empty:
                 continue
 
             # 2. Preprocessing (Warp) mit der Matrix vom VORHERIGEN Frame
+            preprocessing_start = time.time()
             # CPUPreprocessor gibt (resized_frame, undist_frame) zurück - wir nehmen das erste
             preprocessed_result = self.preprocessor.process_frame(raw_frame)
             if isinstance(preprocessed_result, tuple):
                 preprocessed_frame = preprocessed_result[0]  # resized_frame für die Verarbeitung
             else:
                 preprocessed_frame = preprocessed_result
+            self.update_fps_tracker('preprocessing', preprocessing_start)
             
             # 3. Starte alle drei Erkennungen parallel mit Threads
             results = {}
             
             # --- Thread-Funktionen definieren ---
             def field_task():
+                field_start = time.time()
                 # Optimierte Kalibrierung - jetzt schnell genug für jeden Frame
                 if self.calibration_mode:
                     before_calibration = time.perf_counter_ns()
@@ -117,8 +160,11 @@ class ProcessingProcess(mp.Process):
                 else:
                     results['field_width'] = 0
                     results['px_to_cm_ratio'] = 0
+                
+                self.update_fps_tracker('field_detection', field_start)
 
             def ball_task():
+                ball_start = time.time()
                 # Field corners für eingeschränkte Ball-Suche (wie in main_live.py)
                 field_corners = None
                 goals = []
@@ -149,6 +195,8 @@ class ProcessingProcess(mp.Process):
                 # Check for goals
                 score = self.goal_scorer.get_score()
                 results['score'] = score
+                
+                self.update_fps_tracker('ball_detection', ball_start)
 
             def player_task():
                 # TODO: Player-Erkennung noch nicht implementiert
@@ -190,6 +238,8 @@ class ProcessingProcess(mp.Process):
                 "player_data": results.get('player_data'),
                 "score": results.get('score', {'player1': 0, 'player2': 0}),
                 "M_field": self.latest_M_field,
+                "fps_data": self.current_fps.copy(),  # Add FPS data
+                "processing_mode": "GPU" if self.use_gpu_processing else "CPU",  # Add processing mode info
                 "field_data": {
                     'calibrated': self.field_detector.calibrated if self.field_detector else False,
                     'field_contour': results.get('field_contour'),
@@ -207,15 +257,53 @@ class ProcessingProcess(mp.Process):
 
         print("ProcessingProcess beendet.")
     
+    def update_fps_tracker(self, component, start_time):
+        """Update FPS tracking for a specific component"""
+        if component not in self.fps_trackers:
+            return
+            
+        current_time = time.time()
+        tracker = self.fps_trackers[component]
+        tracker['count'] += 1
+        
+        # Calculate FPS every second
+        time_diff = current_time - tracker['last_time']
+        if time_diff >= 1.0:
+            fps = tracker['count'] / time_diff
+            self.current_fps[component] = fps
+            tracker['count'] = 0
+            tracker['last_time'] = current_time
+    
     def handle_command(self, command):
         """Handle commands from the UI process"""
         if command.get('type') == 'reset_score':
             print("Resetting score...")
             if self.goal_scorer:
                 self.goal_scorer.reset_score()
+        elif command.get('type') == 'toggle_processing_mode':
+            self.toggle_processing_mode()
         # Field calibration is now automatic - removed manual calibration commands
         
         # Add more command types as needed
+        
+    def toggle_processing_mode(self):
+        """Toggle between CPU and GPU preprocessing"""
+        self.use_gpu_processing = not self.use_gpu_processing
+        
+        # Switch preprocessor
+        if self.use_gpu_processing and self.gpu_preprocessor is not None:
+            try:
+                # Try to reinitialize GPU preprocessor
+                self.gpu_preprocessor.force_reinitialize()
+                self.preprocessor = self.gpu_preprocessor
+                print("Switched to GPU preprocessing")
+            except Exception as e:
+                print(f"Failed to switch to GPU, staying with CPU: {e}")
+                self.use_gpu_processing = False
+                self.preprocessor = self.cpu_preprocessor
+        else:
+            self.preprocessor = self.cpu_preprocessor
+            print("Switched to CPU preprocessing")
 
 
 # ================== CAMERA THREAD ==================
@@ -224,6 +312,11 @@ def camera_thread_func(raw_frame_queue, running_event):
     """Synchroner Thread, der Frames von der IDS-Kamera holt."""
     print("Camera-Thread gestartet.")
     camera = None
+    
+    # FPS tracking for camera
+    camera_frame_count = 0
+    camera_last_fps_time = time.time()
+    camera_fps = 0.0
     
     try:
         camera = IDS_Camera()
@@ -235,8 +328,19 @@ def camera_thread_func(raw_frame_queue, running_event):
                 bayer_frame, metadata = camera.get_frame()
                 
                 if bayer_frame is not None:
+                    # Update camera FPS tracking
+                    camera_frame_count += 1
+                    current_time = time.time()
+                    if current_time - camera_last_fps_time >= 1.0:
+                        camera_fps = camera_frame_count / (current_time - camera_last_fps_time)
+                        camera_frame_count = 0
+                        camera_last_fps_time = current_time
+                        #print(f"Camera FPS: {camera_fps:.1f}")  # Debug output
+                    
                     if not raw_frame_queue.full():
-                        raw_frame_queue.put(bayer_frame)
+                        # Add camera FPS to frame metadata
+                        frame_with_fps = (bayer_frame, camera_fps)
+                        raw_frame_queue.put(frame_with_fps)
                     # Wenn Queue voll ist, wird der Frame verworfen (neueste Frames sind wichtiger)
                 else:
                     # Kein Frame verfügbar - kurz warten
