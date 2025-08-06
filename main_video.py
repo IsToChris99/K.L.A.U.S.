@@ -139,11 +139,18 @@ class CombinedTracker:
 
                 # Goal scoring system update
                 ball_position = detection_result[0] if detection_result[0] is not None else None
+                ball_velocity = None
+                
+                # If no velocity from detection, get it from Kalman tracker
+                if self.ball_tracker.kalman_tracker.initialized:
+                    ball_velocity = self.ball_tracker.kalman_tracker.get_velocity()
+                
                 self.goal_scorer.update_ball_tracking(
                     ball_position, 
                     goals, 
                     field_corners, 
-                    self.ball_tracker.missing_counter
+                    self.ball_tracker.missing_counter,
+                    ball_velocity
                 )
                 
                 with self.result_lock:

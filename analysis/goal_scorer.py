@@ -5,7 +5,8 @@ from collections import deque
 from config import (
     DEBUG_VERBOSE_OUTPUT,
     COLOR_GOALS, COLOR_SCORE_TEXT, COLOR_GOAL_ALERT, COLOR_BALL_IN_GOAL,
-    GOAL_DISAPPEAR_FRAMES, GOAL_REVERSAL_TIME_WINDOW
+    GOAL_DISAPPEAR_FRAMES, GOAL_REVERSAL_TIME_WINDOW,
+    GOAL_DIRECTION_THRESHOLD_DISTANCE
 )
 
 class GoalScorer:
@@ -24,6 +25,9 @@ class GoalScorer:
         self.ball_in_goal_start_time = None
         self.ball_missing_counter = 0
         self.last_ball_position = None
+        
+        # Configuration for direction-based goal detection
+        self.goal_direction_threshold_distance = GOAL_DIRECTION_THRESHOLD_DISTANCE
         
         self.goal_disappear_frames = GOAL_DISAPPEAR_FRAMES
         self.goal_reversal_time_window = GOAL_REVERSAL_TIME_WINDOW
@@ -62,14 +66,70 @@ class GoalScorer:
         result = cv2.pointPolygonTest(field_corners.astype(np.float32), (ball_x, ball_y), False)
         return result >= 0  # >= 0 means inside or on the boundary
     
-    def update_ball_tracking(self, ball_position, goals, field_corners, ball_missing_counter):
-        """Main function for updating ball tracking and goal detection"""
+    def is_ball_heading_towards_goal(self, ball_position, ball_velocity, goals):
+        """Checks if the ball is heading towards any goal based on velocity from Kalman tracker"""
+        if ball_position is None or ball_velocity is None or not goals:
+            return False, None
+        
+        ball_x, ball_y = ball_position
+        vel_x, vel_y = ball_velocity
+        
+        # Calculate speed from velocity components
+        speed = np.sqrt(vel_x**2 + vel_y**2)
+        
+        # Only consider significant movement (minimum speed threshold)
+        if speed < 3.0:  # Minimum speed threshold
+            return False, None
+        
+        # Normalize velocity to get direction
+        dir_x = vel_x / speed
+        dir_y = vel_y / speed
+        
+        for goal in goals:
+            goal_x, goal_y, goal_w, goal_h = goal['bounds']
+            goal_center_x = goal_x + goal_w / 2
+            goal_center_y = goal_y + goal_h / 2
+            
+            # Vector from ball to goal center
+            to_goal_x = goal_center_x - ball_x
+            to_goal_y = goal_center_y - ball_y
+            goal_distance = np.sqrt(to_goal_x**2 + to_goal_y**2)
+            
+            # Only consider goals within threshold distance
+            if goal_distance > self.goal_direction_threshold_distance:
+                continue
+            
+            # Normalize vector to goal
+            if goal_distance > 0:
+                to_goal_x /= goal_distance
+                to_goal_y /= goal_distance
+                
+                # Calculate dot product (cosine of angle between direction and goal vector)
+                dot_product = dir_x * to_goal_x + dir_y * to_goal_y
+                
+                # If dot product > 0.5, ball is heading roughly towards goal (angle < 60°)
+                if dot_product > 0.5:
+                    if self.debug_verbose:
+                        print(f"Ball heading towards {goal['type']} goal (dot product: {dot_product:.2f}, distance: {goal_distance:.1f}, speed: {speed:.1f})")
+                    return True, goal['type']
+        
+        return False, None
+    
+    def update_ball_tracking(self, ball_position, goals, field_corners, ball_missing_counter, ball_velocity=None):
+        """Main function for updating ball tracking and goal detection
+        
+        Args:
+            ball_position: Current ball position (x, y) or None if not detected
+            goals: List of goal dictionaries with 'bounds' and 'type'
+            field_corners: Field corner points for boundary detection
+            ball_missing_counter: Number of consecutive frames without ball detection
+            ball_velocity: Ball velocity (vx, vy) from Kalman tracker, or None
+        """
         self.ball_missing_counter = ball_missing_counter
         current_time = time.time()
+         
         
-        ball_detected = ball_position is not None
-        
-        if ball_detected:
+        if ball_position is not None:
             self.last_ball_position = ball_position
 
             in_goal, goal_type = self.is_ball_in_goal(ball_position, goals)
@@ -103,6 +163,20 @@ class GoalScorer:
             if self.ball_in_goal and self.ball_missing_counter >= self.goal_disappear_frames:
                 # Ball was in goal and is now missing - GOAL!
                 self._score_goal(self.ball_in_goal_type)
+            elif not self.ball_in_goal and not self.goal_scored_recently and self.ball_missing_counter >= self.goal_disappear_frames:
+                # Ball disappeared without being in goal - check if it was heading towards goal
+                # Only check once when missing counter reaches threshold
+                if self.ball_missing_counter == self.goal_disappear_frames:
+                    if ball_velocity is not None and self.last_ball_position is not None:
+                        heading_to_goal, target_goal_type = self.is_ball_heading_towards_goal(
+                            self.last_ball_position, ball_velocity, goals
+                        )
+                        
+                        if heading_to_goal:
+                            # Ball was heading towards goal and disappeared - GOAL!
+                            if self.debug_verbose:
+                                print(f"Ball was heading towards {target_goal_type} goal and disappeared - GOAL!")
+                            self._score_goal(target_goal_type)
                 
         if self.goal_scored_recently:
             self._check_for_goal_return(ball_position, field_corners, current_time)
