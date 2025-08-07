@@ -1,2 +1,2 @@
 # K.L.A.U.S.
-KLAUS – Kicker Live Analytics Universal System | university project at TH Köln
+K.L.A.U.S. – Kicker Live Analytics Universal System | university project at TH Köln
