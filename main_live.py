@@ -207,6 +207,15 @@ class CombinedTracker:
             self.px_to_cm_ratio = self.field_width / 118 if self.field_width != 0 else 0
             # print(f"Field Width: {self.field_width} px, Pixel to Meter Ratio: {self.px_to_cm_ratio:.4f}")
 
+
+    def _transform_points(self, points_array, M):
+        if points_array.size == 0:
+            return np.array([], dtype=np.int32).reshape(0, 2)
+        points_np_float = points_array.astype(np.float32)
+        points_reshaped = points_np_float.reshape(-1, 1, 2)
+        transformed_np = cv2.perspectiveTransform(points_reshaped, M)
+        return transformed_np.reshape(-1, 2).astype(int)
+
     def draw_ball_visualization(self, frame):
         """Draws ball visualization"""
         with self.result_lock:
@@ -217,12 +226,19 @@ class CombinedTracker:
 
         detection = ball_result_copy['detection']
         smoothed_pts = ball_result_copy['smoothed_pts']
+        transformed_smoothed_pts = []
+        if smoothed_pts is not None:
+            # Filter out None values before creating numpy array
+            valid_pts = [pt for pt in smoothed_pts if pt is not None]
+            if valid_pts:
+                transformed_smoothed_pts = self._transform_points(np.array(valid_pts), self.M_persp)
         missing_counter = ball_result_copy['missing_counter']
 
         # Draw ball info
         if detection[0] is not None:
             center, radius, confidence, velocity = detection
-            center_int = (int(center[0]), int(center[1]))
+            transformed_center = self._transform_points(np.array([center]), self.M_persp)[0]
+            center_int = (int(transformed_center[0]), int(transformed_center[1]))
 
             # Color selection based on confidence
             if confidence >= 0.8:
@@ -242,21 +258,15 @@ class CombinedTracker:
 
             # Show Kalman velocity
             if velocity is not None:
-                cv2.arrowedLine(frame, center,
-                            (int(center[0] + velocity[0]*30), int(center[1] + velocity[1]*30)),
+                cv2.arrowedLine(frame, transformed_center,
+                            (int(transformed_center[0] + velocity[0]*30), int(transformed_center[1] + velocity[1]*30)),
                             (255, 0, 255), 2)
-        
-        # Ball trail drawing
-        
-        # if len(smoothed_pts) >= 64:
-        #     print(f"\rDrawing ball trail with {len(smoothed_pts)} points", end="")
-        #     cv2.line(frame, smoothed_pts[0], smoothed_pts[63], COLOR_BALL_TRAIL, 4)  # Dummy point for trail
-
-        for i in range(1, len(smoothed_pts)):
-            if smoothed_pts[i - 1] is None or smoothed_pts[i] is None:
-                continue
+                
+        # Draw smoothed points trail
+        for i in range(1, len(transformed_smoothed_pts)):
             thickness = int(np.sqrt(config.BALL_TRAIL_MAX_LENGTH / float(i + 1)) * config.BALL_TRAIL_THICKNESS_FACTOR)
-            cv2.line(frame, smoothed_pts[i - 1], smoothed_pts[i], config.COLOR_BALL_TRAIL, thickness)
+            cv2.line(frame, tuple(transformed_smoothed_pts[i - 1]), tuple(transformed_smoothed_pts[i]), config.COLOR_BALL_TRAIL, thickness)
+
 
         # Missing Counter
         cv2.putText(frame, f"Missing: {missing_counter}", (10, 120),
@@ -267,39 +277,41 @@ class CombinedTracker:
         with self.result_lock:
             field_data_copy = self.field_data.copy() if self.field_data else None
         
-        if field_data_copy is None:
+        if field_data_copy is None or field_data_copy['field_corners'] is None:
             return
+        transformed_corners = self._transform_points(field_data_copy['field_corners'], self.M_persp)
 
         # Field corners
-        if field_data_copy['field_corners'] is not None:
-            for i, corner in enumerate(field_data_copy['field_corners']):
-                corner_int = (int(corner[0]), int(corner[1]))
-                cv2.circle(frame, corner_int, 2, config.COLOR_FIELD_CORNERS, -1)
-                cv2.putText(frame, f"{i+1}", (int(corner[0])+10, int(corner[1])-10),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, config.COLOR_FIELD_CORNERS, 2)
+        for i, corner in enumerate(transformed_corners):
+            corner_int = (int(corner[0]), int(corner[1]))
+            cv2.circle(frame, corner_int, 2, config.COLOR_FIELD_CORNERS, -1)
+            cv2.putText(frame, f"{i+1}", (int(corner[0])+10, int(corner[1])-10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, config.COLOR_FIELD_CORNERS, 2)
 
         # Goals
         for i, goal in enumerate(field_data_copy['goals']):
             # Zeichne die ausgerichtete Tor-Kontur wenn vorhanden
             if goal.get('contour') is not None:
-                cv2.drawContours(frame, [goal['contour']], -1, config.COLOR_GOALS, 2)
+                transformed_contour = self._transform_points(goal['contour'], self.M_persp)
+                cv2.drawContours(frame, [transformed_contour], -1, config.COLOR_GOALS, 2)
             else:
                 # Fallback auf rechteckige Bounds
                 x, y, w, h = goal['bounds']
-                cv2.rectangle(frame, (int(x), int(y)), (int(x+w), int(y+h)), config.COLOR_GOALS, 2)
+                transformed_bounds = self._transform_points(np.array([[x, y], [x + w, y + h]]), self.M_persp)
+                cv2.rectangle(frame, (int(transformed_bounds[0][0]), int(transformed_bounds[0][1])),
+                                      (int(transformed_bounds[1][0]), int(transformed_bounds[1][1])),
+                                      config.COLOR_GOALS, 2)
 
             # Zeichne Tor-Center und Label
             center_x, center_y = goal['center']
-            center_int = (int(center_x), int(center_y))
-            cv2.circle(frame, center_int, 5, config.COLOR_GOALS, -1)
-            cv2.putText(frame, f"Goal {i+1} ({goal['type']})", (int(center_x)-30, int(center_y)-15),
+            transformed_center = self._transform_points(np.array([[center_x, center_y]]), self.M_persp)[0]
+            cv2.circle(frame, (int(transformed_center[0]), int(transformed_center[1])), 5, config.COLOR_GOALS, -1)
+            cv2.putText(frame, f"Goal {i+1} ({goal['type']})", (int(transformed_center[0])-30, int(transformed_center[1])-15),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, config.COLOR_GOALS, 2)
 
         # Field limits with corners
-        if (field_data_copy['calibrated'] and 
-            field_data_copy.get('field_corners') is not None):
-            field_corners_int = np.array(field_data_copy['field_corners'], dtype=np.int32)
-            cv2.drawContours(frame, [field_corners_int], -1, config.COLOR_FIELD_BOUNDS, 1)
+        field_corners_int = np.array(transformed_corners, dtype=np.int32)
+        cv2.drawContours(frame, [field_corners_int], -1, config.COLOR_FIELD_BOUNDS, 1)
 
     def draw_status_info(self, frame):
         """Draws status information"""
@@ -497,14 +509,12 @@ class CombinedTracker:
                             (config.DETECTION_WIDTH, config.DETECTION_HEIGHT)
                         )
 
-                    #print(self.M_persp)
-
                     # Visualization based on mode
                     if self.visualization_mode in [self.BALL_ONLY, self.COMBINED]:
                         self.draw_ball_visualization(display_frame)
                         
                     if self.visualization_mode in [self.FIELD_ONLY, self.COMBINED]:
-                        self.draw_field_visualization(display_frame)
+                       self.draw_field_visualization(display_frame)
                     
                     self.goal_scorer.draw_score_info(display_frame)
                     self.draw_status_info(display_frame)
