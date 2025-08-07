@@ -6,6 +6,7 @@ import queue
 import numpy as np
 import cv2
 from PySide6.QtWidgets import QApplication
+# import qdarkstyle
 
 # Lokale Imports
 from detection.ball_detector import BallDetector
@@ -369,6 +370,7 @@ def camera_thread_func(raw_frame_queue, running_event):
 def main_gui():
     """Startet die gesamte Anwendung: UI, Kamera-Thread und Processing-Prozess."""
     app = QApplication(sys.argv)
+    # app.setStyleSheet(qdarkstyle.load_stylesheet_pyside6())  # Dark mode for better visibility
 
     # 1. Erstelle Kommunikationsmittel
     # Ein Event, um alle Teile sauber zu beenden

@@ -7,9 +7,9 @@ from PySide6.QtGui import QImage, QPixmap, QColor, QMouseEvent
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QLabel, QPushButton,
     QVBoxLayout, QHBoxLayout, QTextEdit, QSizePolicy,
-    QGroupBox, QCheckBox, QComboBox
+    QGroupBox, QCheckBox, QComboBox, QTabWidget, QLineEdit,
+    QFormLayout, QSpinBox, QDoubleSpinBox, QSlider
 )
-from match_modes.match_modes import MatchModes
 
 
 class ClickableVideoLabel(QLabel):
@@ -107,7 +107,6 @@ class KickerMainWindow(QMainWindow):
         self.visualization_mode = self.COMBINED
         
         # Statistics and scoring
-        self.matcher = MatchModes()
         self.player1_goals = 0
         self.player2_goals = 0
         
@@ -134,11 +133,32 @@ class KickerMainWindow(QMainWindow):
         self.add_log_message("GUI initialized with multi-processing architecture")
         
     def setup_ui(self):
-        """Creates the complete user interface"""
+        """Creates the complete user interface with tab system"""
         central = QWidget()
         self.setCentralWidget(central)
         
         main_layout = QVBoxLayout(central)
+        
+        # Create tab widget
+        self.tab_widget = QTabWidget()
+        
+        # Create tabs
+        self.tracking_tab = self.create_tracking_tab()
+        self.settings_tab = self.create_settings_tab()
+        self.about_tab = self.create_about_tab()
+        
+        # Add tabs to widget
+        self.tab_widget.addTab(self.tracking_tab, "🎯 Tracking")
+        self.tab_widget.addTab(self.settings_tab, "⚙️ Settings")
+        self.tab_widget.addTab(self.about_tab, "ℹ️ About")
+
+        # Add tab widget to main layout
+        main_layout.addWidget(self.tab_widget)
+        
+    def create_tracking_tab(self):
+        """Creates the main tracking interface tab"""
+        tracking_widget = QWidget()
+        main_layout = QVBoxLayout(tracking_widget)
         
         # Score section
         score_group = self.create_score_section()
@@ -158,6 +178,359 @@ class KickerMainWindow(QMainWindow):
         # Main layout assembly
         main_layout.addWidget(score_group)
         main_layout.addLayout(content_layout, stretch=4)
+        
+        return tracking_widget
+    
+    def create_settings_tab(self):
+        """Creates the camera settings interface tab"""
+        settings_widget = QWidget()
+        main_layout = QVBoxLayout(settings_widget)
+        
+        # Title
+        title_label = QLabel("Camera & System Settings")
+        title_label.setStyleSheet("""
+            QLabel {
+                font-size: 24px;
+                font-weight: bold;
+                color: #4CAF50;
+                margin: 20px;
+                text-align: center;
+            }
+        """)
+        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        main_layout.addWidget(title_label)
+        
+        # Settings content in horizontal layout
+        settings_content = QHBoxLayout()
+        
+        # Left column: Camera Settings
+        camera_group = self.create_camera_settings_group()
+        
+        # Right column: Processing Settings
+        processing_group = self.create_processing_settings_group()
+        
+        settings_content.addWidget(camera_group, stretch=1)
+        settings_content.addWidget(processing_group, stretch=1)
+        
+        main_layout.addLayout(settings_content)
+        
+        # Bottom: Action buttons
+        button_layout = QHBoxLayout()
+        
+        self.apply_settings_btn = QPushButton("Apply Settings")
+        self.apply_settings_btn.setStyleSheet("""
+            QPushButton {
+                font-size: 14px;
+                padding: 15px 30px;
+                background-color: #4CAF50;
+                color: white;
+                border: none;
+                border-radius: 8px;
+            }
+            QPushButton:hover {
+                background-color: #45a049;
+            }
+            QPushButton:pressed {
+                background-color: #3d8b40;
+            }
+        """)
+        
+        self.reset_settings_btn = QPushButton("Reset to Defaults")
+        self.reset_settings_btn.setStyleSheet("""
+            QPushButton {
+                font-size: 14px;
+                padding: 15px 30px;
+                background-color: #FFA726;
+                color: white;
+                border: none;
+                border-radius: 8px;
+            }
+            QPushButton:hover {
+                background-color: #FF9800;
+            }
+            QPushButton:pressed {
+                background-color: #F57C00;
+            }
+        """)
+        
+        button_layout.addStretch()
+        button_layout.addWidget(self.reset_settings_btn)
+        button_layout.addWidget(self.apply_settings_btn)
+        button_layout.addStretch()
+        
+        main_layout.addLayout(button_layout)
+        main_layout.addStretch()
+        
+        
+        video_layout = QVBoxLayout()
+        self.video_label = ClickableVideoLabel()
+        self.video_label.setText("Processing gestartet - Warten auf Video-Stream...")
+        self.video_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.video_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.video_label.setStyleSheet("border: 2px solid gray;")
+        self.video_label.setMinimumSize(500, 350)
+        video_layout.addWidget(self.video_label)
+
+        main_layout.addLayout(video_layout)
+        
+        return settings_widget
+
+    def create_about_tab(self):
+        """Creates the about section with centered labels"""
+        about_widget = QWidget()
+        about_layout = QVBoxLayout(about_widget)
+        
+        # Headline
+        about_headline = QLabel("KLAUS - Kicker Live Analytics Universal System\nVersion 1.0")
+        about_headline.setStyleSheet("""
+            QLabel {
+                font-size: 20px;
+                font-weight: bold;
+                color: #4CAF50;
+                margin: 20px;
+            }
+        """)
+        about_headline.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        about_layout.addWidget(about_headline)
+        
+        # Team info in a nice container
+        team_container = QGroupBox("Development Team")
+        team_container.setStyleSheet("""
+            QGroupBox {
+                font-size: 16px;
+                font-weight: bold;
+                border: 2px solid #4CAF50;
+                border-radius: 10px;
+                margin: 20px;
+                padding-top: 15px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 20px;
+                padding: 0 10px 0 10px;
+                color: #4CAF50;
+            }
+        """)
+        
+        team_layout = QVBoxLayout(team_container)
+        
+        # Team members
+        developers_label = QLabel("Tim Vesper • Roman Heck • Jose Pineda • Joshua Siemer • Christian Gunter")
+        developers_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        developers_label.setStyleSheet("font-size: 16px; margin: 10px; font-weight: bold;")
+        
+        # Roles
+        roles = [
+            ("Team Leader", "Tim Vesper"),
+            ("Processing Architecture", "Tim Vesper"),
+            ("GUI Design & Implementation", "Christian Gunter"),
+            ("IDS Camera Integration", "Tim Vesper"),
+            ("Camera Calibration", "Christian Gunter"),
+            ("Field & Ball Detection", "Joshua Siemer"),
+            ("Player Detection", "Roman Heck"),
+            ("Ball Heatmap", "Jose Pineda")
+        ]
+        
+        team_layout.addWidget(developers_label)
+        team_layout.addWidget(QLabel())  # Spacer
+        
+        for role, person in roles:
+            role_label = QLabel(f"{role}: {person}")
+            role_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            role_label.setStyleSheet("font-size: 14px; margin: 5px;")
+            team_layout.addWidget(role_label)
+        
+        about_layout.addWidget(team_container)
+        about_layout.addStretch()
+        
+        return about_widget
+
+    def create_camera_settings_group(self):
+        """Creates the camera settings group"""
+        camera_group = QGroupBox("📹 Camera Settings")
+        camera_group.setStyleSheet("""
+            QGroupBox {
+                font-size: 16px;
+                font-weight: bold;
+                border: 2px solid #4CAF50;
+                border-radius: 10px;
+                margin: 10px;
+                padding-top: 15px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px 0 5px;
+                color: #4CAF50;
+            }
+        """)
+        
+        layout = QFormLayout(camera_group)
+        layout.setSpacing(15)
+        
+        # Exposure Time
+        self.exposure_time_input = QDoubleSpinBox()
+        self.exposure_time_input.setRange(0.1, 1000.0)
+        self.exposure_time_input.setValue(10.0)
+        self.exposure_time_input.setSuffix(" ms")
+        self.exposure_time_input.setDecimals(1)
+        layout.addRow("Exposure Time:", self.exposure_time_input)
+        
+        # Gain
+        self.gain_input = QDoubleSpinBox()
+        self.gain_input.setRange(0.0, 40.0)
+        self.gain_input.setValue(1.0)
+        self.gain_input.setSuffix(" dB")
+        self.gain_input.setDecimals(1)
+        layout.addRow("Gain:", self.gain_input)
+        
+        # White Balance Red
+        self.wb_red_input = QDoubleSpinBox()
+        self.wb_red_input.setRange(0.5, 3.0)
+        self.wb_red_input.setValue(1.0)
+        self.wb_red_input.setDecimals(2)
+        layout.addRow("White Balance Red:", self.wb_red_input)
+        
+        # White Balance Blue
+        self.wb_blue_input = QDoubleSpinBox()
+        self.wb_blue_input.setRange(0.5, 3.0)
+        self.wb_blue_input.setValue(1.0)
+        self.wb_blue_input.setDecimals(2)
+        layout.addRow("White Balance Blue:", self.wb_blue_input)
+        
+        # Brightness
+        self.brightness_input = QSpinBox()
+        self.brightness_input.setRange(-100, 100)
+        self.brightness_input.setValue(0)
+        layout.addRow("Brightness:", self.brightness_input)
+        
+        # Contrast
+        self.contrast_input = QDoubleSpinBox()
+        self.contrast_input.setRange(0.1, 3.0)
+        self.contrast_input.setValue(1.0)
+        self.contrast_input.setDecimals(2)
+        layout.addRow("Contrast:", self.contrast_input)
+        
+        # Gamma
+        self.gamma_input = QDoubleSpinBox()
+        self.gamma_input.setRange(0.1, 3.0)
+        self.gamma_input.setValue(1.0)
+        self.gamma_input.setDecimals(2)
+        layout.addRow("Gamma:", self.gamma_input)
+        
+        # Frame Rate
+        self.framerate_input = QSpinBox()
+        self.framerate_input.setRange(1, 250)
+        self.framerate_input.setValue(30)
+        self.framerate_input.setSuffix(" fps")
+        layout.addRow("Target Frame Rate:", self.framerate_input)
+        
+        return camera_group
+    
+    def create_processing_settings_group(self):
+        """Creates the processing settings group"""
+        processing_group = QGroupBox("🔧 Processing Settings")
+        processing_group.setStyleSheet("""
+            QGroupBox {
+                font-size: 16px;
+                font-weight: bold;
+                border: 2px solid #4CAF50;
+                border-radius: 10px;
+                margin: 10px;
+                padding-top: 15px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px 0 5px;
+                color: #4CAF50;
+            }
+        """)
+        
+        layout = QFormLayout(processing_group)
+        layout.setSpacing(15)
+        
+        # Ball Detection Sensitivity
+        self.ball_sensitivity_input = QSlider(Qt.Orientation.Horizontal)
+        self.ball_sensitivity_input.setRange(1, 100)
+        self.ball_sensitivity_input.setValue(50)
+        self.ball_sensitivity_label = QLabel("50%")
+        self.ball_sensitivity_input.valueChanged.connect(
+            lambda v: self.ball_sensitivity_label.setText(f"{v}%")
+        )
+        
+        sensitivity_layout = QHBoxLayout()
+        sensitivity_layout.addWidget(self.ball_sensitivity_input)
+        sensitivity_layout.addWidget(self.ball_sensitivity_label)
+        layout.addRow("Ball Detection Sensitivity:", sensitivity_layout)
+        
+        # Ball Size Range Min
+        self.ball_size_min_input = QSpinBox()
+        self.ball_size_min_input.setRange(1, 50)
+        self.ball_size_min_input.setValue(5)
+        self.ball_size_min_input.setSuffix(" px")
+        layout.addRow("Min Ball Size:", self.ball_size_min_input)
+        
+        # Ball Size Range Max
+        self.ball_size_max_input = QSpinBox()
+        self.ball_size_max_input.setRange(10, 200)
+        self.ball_size_max_input.setValue(50)
+        self.ball_size_max_input.setSuffix(" px")
+        layout.addRow("Max Ball Size:", self.ball_size_max_input)
+        
+        # Field Detection Threshold
+        self.field_threshold_input = QSlider(Qt.Orientation.Horizontal)
+        self.field_threshold_input.setRange(1, 255)
+        self.field_threshold_input.setValue(128)
+        self.field_threshold_label = QLabel("128")
+        self.field_threshold_input.valueChanged.connect(
+            lambda v: self.field_threshold_label.setText(str(v))
+        )
+        
+        threshold_layout = QHBoxLayout()
+        threshold_layout.addWidget(self.field_threshold_input)
+        threshold_layout.addWidget(self.field_threshold_label)
+        layout.addRow("Field Detection Threshold:", threshold_layout)
+        
+        # Kalman Filter Strength
+        self.kalman_strength_input = QSlider(Qt.Orientation.Horizontal)
+        self.kalman_strength_input.setRange(1, 100)
+        self.kalman_strength_input.setValue(75)
+        self.kalman_strength_label = QLabel("75%")
+        self.kalman_strength_input.valueChanged.connect(
+            lambda v: self.kalman_strength_label.setText(f"{v}%")
+        )
+        
+        kalman_layout = QHBoxLayout()
+        kalman_layout.addWidget(self.kalman_strength_input)
+        kalman_layout.addWidget(self.kalman_strength_label)
+        layout.addRow("Kalman Filter Strength:", kalman_layout)
+        
+        # Goal Detection Sensitivity
+        self.goal_sensitivity_input = QSlider(Qt.Orientation.Horizontal)
+        self.goal_sensitivity_input.setRange(1, 100)
+        self.goal_sensitivity_input.setValue(60)
+        self.goal_sensitivity_label = QLabel("60%")
+        self.goal_sensitivity_input.valueChanged.connect(
+            lambda v: self.goal_sensitivity_label.setText(f"{v}%")
+        )
+        
+        goal_layout = QHBoxLayout()
+        goal_layout.addWidget(self.goal_sensitivity_input)
+        goal_layout.addWidget(self.goal_sensitivity_label)
+        layout.addRow("Goal Detection Sensitivity:", goal_layout)
+        
+        # Processing Resolution
+        self.processing_resolution_input = QComboBox()
+        self.processing_resolution_input.addItems([
+            "720x540 (Fast)",
+            "960x720 (Balanced)",
+            "1440x1080 (Quality)"
+        ])
+        self.processing_resolution_input.setCurrentIndex(1)
+        layout.addRow("Processing Resolution:", self.processing_resolution_input)
+        
+        return processing_group
         
     def create_score_section(self):
         """Creates the score section"""
@@ -179,17 +552,17 @@ class KickerMainWindow(QMainWindow):
             }
         """)
         score_layout = QHBoxLayout(score_group)
-        
-        # Game Mode Selection (left)
-        game_mode_widget = self.create_game_mode_selection()
-        
+
+        # Max Goal Selection (left)
+        max_goal_widget = self.create_max_goal_selection()
+
         # Score Display with embedded buttons (center)
         score_widget = self.create_score_display_with_buttons()
         
         # Match Control Buttons (right)
         self.match_buttons_widget = self.create_match_buttons()
-        
-        score_layout.addWidget(game_mode_widget, stretch=1)
+
+        score_layout.addWidget(max_goal_widget, stretch=1)
         score_layout.addWidget(score_widget, stretch=5)
         score_layout.addWidget(self.match_buttons_widget, stretch=1)
         
@@ -285,14 +658,15 @@ class KickerMainWindow(QMainWindow):
         
         return score_widget
     
-    def create_game_mode_selection(self):
-        """Creates the game mode selection widget"""
-        game_mode_widget = QWidget()
-        game_mode_layout = QVBoxLayout(game_mode_widget)
-        game_mode_layout.setContentsMargins(0, 15, 0, 0)
+    def create_max_goal_selection(self):
+        """Creates the goal limit input widget"""
+        goal_limit_widget = QWidget()
+        goal_limit_layout = QVBoxLayout(goal_limit_widget)
+        goal_limit_layout.setContentsMargins(0, 15, 0, 0)
         
-        mode_label = QLabel("Game Mode")
-        mode_label.setStyleSheet("""
+        # Label for Goal Limit
+        limit_label = QLabel("Max Goals")
+        limit_label.setStyleSheet("""
             QLabel {
                 font-size: 14px;
                 font-weight: bold;
@@ -300,46 +674,55 @@ class KickerMainWindow(QMainWindow):
                 margin-bottom: 10px;
             }
         """)
-        mode_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        limit_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
-        self.game_mode_combo = QComboBox()
-        self.game_mode_combo.addItems(["Normal Mode", "Practice Mode", "Tournament Mode"])
-        self.game_mode_combo.setCurrentText("Normal Mode")
-        self.game_mode_combo.setStyleSheet("""
-            QComboBox {
-                font-size: 12px;
-                padding: 8px;
-                background-color: palette(button);
-                color: palette(button-text);
-                border: 1px solid palette(mid);
-                border-radius: 4px;
-                min-width: 120px;
+        # Input field for goal limit
+        self.goal_limit_input = QSpinBox()
+        self.goal_limit_input.setRange(1, 1000)
+        self.goal_limit_input.setValue(9)  # Default value
+        self.goal_limit_input.setStyleSheet("""
+            QGroupBox {
+                font-size: 16px;
+                font-weight: bold;
+                border: 2px solid #4CAF50;
+                border-radius: 10px;
+                margin: 10px;
+                padding-top: 15px;
             }
-            QComboBox:hover {
-                background-color: palette(light);
-                border: 1px solid palette(highlight);
-            }
-            QComboBox::drop-down {
-                border: none;
-                width: 20px;
-            }
-            QComboBox::down-arrow {
-                image: none;
-                border: 2px solid palette(button-text);
-                border-top: none;
-                border-right: none;
-                width: 6px;
-                height: 6px;
-                margin-right: 8px;
-                transform: rotate(-45deg);
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px 0 5px;
+                color: #4CAF50;
             }
         """)
         
-        game_mode_layout.addWidget(mode_label)
-        game_mode_layout.addWidget(self.game_mode_combo)
-        game_mode_layout.addStretch()
+        # Reset button
+        self.reset_goal_limit_btn = QPushButton("Reset max. Goals")
+        self.reset_goal_limit_btn.setStyleSheet("""
+            QPushButton {
+                font-size: 14px;
+                padding: 5px 10px;
+                background-color: #FFA726;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                margin-top: 5px;
+            }
+            QPushButton:hover {
+                background-color: #FF9800;
+            }
+            QPushButton:pressed {
+                background-color: #F57C00;
+            }
+        """)
         
-        return game_mode_widget
+        goal_limit_layout.addWidget(limit_label)
+        goal_limit_layout.addWidget(self.goal_limit_input)
+        goal_limit_layout.addWidget(self.reset_goal_limit_btn)
+        goal_limit_layout.addStretch()
+        
+        return goal_limit_widget
     
     def create_match_buttons(self):
         """Creates the match control buttons"""
@@ -421,7 +804,7 @@ class KickerMainWindow(QMainWindow):
         self.video_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.video_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.video_label.setStyleSheet("border: 2px solid gray;")
-        self.video_label.setMinimumSize(800, 600)
+        self.video_label.setMinimumSize(720, 540)
         video_layout.addWidget(self.video_label)
         
         return video_layout
@@ -505,11 +888,6 @@ class KickerMainWindow(QMainWindow):
         
         settings_layout.addLayout(processing_layout)
         
-        info_label = QLabel("Processing läuft in\nseparatem Prozess")
-        info_label.setStyleSheet("color: gray; font-size: 10px;")
-        info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        settings_layout.addWidget(info_label)
-        
         return settings_group
     
     def create_status_section(self):
@@ -562,21 +940,25 @@ class KickerMainWindow(QMainWindow):
         self.field_only_btn.clicked.connect(lambda: self.set_visualization_mode(2))
         self.combined_btn.clicked.connect(lambda: self.set_visualization_mode(3))
         
-        self.reset_score_btn.clicked.connect(self.reset_score)
-        self.start_match_btn.clicked.connect(self.start_match)
-        self.cancel_match_btn.clicked.connect(self.cancel_match)
+        self.reset_score_btn.clicked.connect(self.reset_score_placeholder)
+        self.start_match_btn.clicked.connect(self.start_match_placeholder)
+        self.cancel_match_btn.clicked.connect(self.cancel_match_placeholder)
         
         # Manual score control buttons
-        self.team1_plus_btn.clicked.connect(self.team1_score_plus)
-        self.team1_minus_btn.clicked.connect(self.team1_score_minus)
-        self.team2_plus_btn.clicked.connect(self.team2_score_plus)
-        self.team2_minus_btn.clicked.connect(self.team2_score_minus)
+        self.team1_plus_btn.clicked.connect(self.team1_score_plus_placeholder)
+        self.team1_minus_btn.clicked.connect(self.team1_score_minus_placeholder)
+        self.team2_plus_btn.clicked.connect(self.team2_score_plus_placeholder)
+        self.team2_minus_btn.clicked.connect(self.team2_score_minus_placeholder)
         
-        # Game mode selection
-        self.game_mode_combo.currentTextChanged.connect(self.change_game_mode)
+        # Goal limit controls
+        self.reset_goal_limit_btn.clicked.connect(self.reset_goal_limit_placeholder)
         
         # Color picking from video
         self.video_label.color_picked.connect(self.on_color_picked)
+        
+        # Settings tab buttons
+        self.apply_settings_btn.clicked.connect(self.apply_settings)
+        self.reset_settings_btn.clicked.connect(self.reset_settings)
     
     def poll_results_queue(self):
         """Polls the results queue for new data from the processing process"""
@@ -762,16 +1144,11 @@ class KickerMainWindow(QMainWindow):
         self.add_log_message(f"Visualization mode set to: {mode_names.get(mode, 'Unknown')}")
     
     @Slot()
-    def reset_score(self):
-        """Resets the score"""
-        if self.matcher.get_mode() == "practice":
-            self.add_log_message("Score reset disabled in Practice Mode")
-            return
-            
+    def reset_score_placeholder(self):
+        """Placeholder for resetting the score - logic to be implemented later"""
         # Reset local score
         self.player1_goals = 0
         self.player2_goals = 0
-        self.matcher.reset_scores()
         self.update_score("0:0")
         
         # Send command to processing process to reset its score too
@@ -799,81 +1176,55 @@ class KickerMainWindow(QMainWindow):
             self.processing_mode_checkbox.setChecked(not checked)
     
     @Slot()
-    def team1_score_plus(self):
-        """Increases Player 1 score by 1"""
-        if self.matcher.get_mode() == "practice":
-            self.add_log_message("Score changes disabled in Practice Mode")
-            return
-            
+    def team1_score_plus_placeholder(self):
+        """Placeholder for increasing Player 1 score - logic to be implemented later"""
         self.player1_goals += 1
         self.update_score(f"{self.player1_goals}:{self.player2_goals}")
-        if self.matcher.update_score(1, 1):
-            self.add_log_message("Team 1 won!")
         self.add_log_message("Team 1 score +1 (manual)")
 
     @Slot()
-    def team1_score_minus(self):
-        """Decreases Player 1 score by 1"""
-        if self.matcher.get_mode() == "practice":
-            self.add_log_message("Score changes disabled in Practice Mode")
-            return
-            
+    def team1_score_minus_placeholder(self):
+        """Placeholder for decreasing Player 1 score - logic to be implemented later"""
         if self.player1_goals > 0:
             self.player1_goals -= 1
             self.update_score(f"{self.player1_goals}:{self.player2_goals}")
-            self.matcher.update_score(1, -1)
             self.add_log_message("Team 1 score -1 (manual)")
         else:
             self.add_log_message("Team 1 score cannot go below 0")
 
     @Slot()
-    def team2_score_plus(self):
-        """Increases Player 2 score by 1"""
-        if self.matcher.get_mode() == "practice":
-            self.add_log_message("Score changes disabled in Practice Mode")
-            return
-            
+    def team2_score_plus_placeholder(self):
+        """Placeholder for increasing Player 2 score - logic to be implemented later"""
         self.player2_goals += 1
         self.update_score(f"{self.player1_goals}:{self.player2_goals}")
-        if self.matcher.update_score(2, 1):
-            self.add_log_message("Team 2 won!")
         self.add_log_message("Team 2 score +1 (manual)")
 
     @Slot()
-    def team2_score_minus(self):
-        """Decreases Player 2 score by 1"""
-        if self.matcher.get_mode() == "practice":
-            self.add_log_message("Score changes disabled in Practice Mode")
-            return
-            
+    def team2_score_minus_placeholder(self):
+        """Placeholder for decreasing Player 2 score - logic to be implemented later"""
         if self.player2_goals > 0:
             self.player2_goals -= 1
             self.update_score(f"{self.player1_goals}:{self.player2_goals}")
-            self.matcher.update_score(2, -1)
             self.add_log_message("Team 2 score -1 (manual)")
         else:
             self.add_log_message("Team 2 score cannot go below 0")
 
     @Slot()
-    def start_match(self):
-        """Starts a match and shows the match buttons"""
+    def start_match_placeholder(self):
+        """Placeholder for starting a match - logic to be implemented later"""
         self.start_match_btn.hide()
-        
-        self.matcher.reset_scores()
-        self.matcher.start_match()
         
         self.reset_score_btn.show()
         self.cancel_match_btn.show()
 
-        self.add_log_message("Match started")
+        self.add_log_message("Match started (placeholder)")
 
     @Slot()
-    def cancel_match(self):
-        """Cancels the current match and resets the score"""
+    def cancel_match_placeholder(self):
+        """Placeholder for canceling a match - logic to be implemented later"""
         self.reset_score_btn.hide()
         self.cancel_match_btn.hide()
         
-        self.matcher.end_match()
         self.player1_goals = 0
         self.player2_goals = 0
         
@@ -881,26 +1232,13 @@ class KickerMainWindow(QMainWindow):
         
         self.start_match_btn.show()
         
-        self.add_log_message("Match canceled")
-    
-    @Slot(str)
-    def change_game_mode(self, mode_text):
-        """Changes the game mode based on ComboBox selection"""
-        mode_mapping = {
-            "Normal Mode": "normal",
-            "Practice Mode": "practice", 
-            "Tournament Mode": "tournament"
-        }
+        self.add_log_message("Match canceled (placeholder)")
         
-        if mode_text in mode_mapping:
-            mode_key = mode_mapping[mode_text]
-            self.matcher.set_mode(mode_key)
-            
-            description = self.matcher.get_mode_description()
-            self.add_log_message(f"Game mode changed to: {mode_text}")
-            self.add_log_message(f"Description: {description}")
-        else:
-            self.add_log_message(f"Unknown game mode: {mode_text}")
+    @Slot()
+    def reset_goal_limit_placeholder(self):
+        """Placeholder for resetting goal limit to default value"""
+        self.goal_limit_input.setValue(9)
+        self.add_log_message("Goal limit reset to 9")
     
     @Slot(int, int, int)
     def on_color_picked(self, r, g, b):
@@ -917,6 +1255,72 @@ class KickerMainWindow(QMainWindow):
         self.add_log_message(f"Color picked: HEX({hex_color})")
         
         self.add_log_message("Tip: Diese Farbe könnte für die Spielfelderkennung verwendet werden")
+    
+    @Slot()
+    def apply_settings(self):
+        """Apply camera and processing settings"""
+        # Collect camera settings
+        camera_settings = {
+            'exposure_time': self.exposure_time_input.value(),
+            'gain': self.gain_input.value(),
+            'wb_red': self.wb_red_input.value(),
+            'wb_blue': self.wb_blue_input.value(),
+            'brightness': self.brightness_input.value(),
+            'contrast': self.contrast_input.value(),
+            'gamma': self.gamma_input.value(),
+            'framerate': self.framerate_input.value()
+        }
+        
+        # Collect processing settings
+        processing_settings = {
+            'ball_sensitivity': self.ball_sensitivity_input.value(),
+            'ball_size_min': self.ball_size_min_input.value(),
+            'ball_size_max': self.ball_size_max_input.value(),
+            'field_threshold': self.field_threshold_input.value(),
+            'kalman_strength': self.kalman_strength_input.value(),
+            'goal_sensitivity': self.goal_sensitivity_input.value(),
+            'processing_resolution': self.processing_resolution_input.currentText()
+        }
+        
+        # Send settings to processing process
+        try:
+            self.command_queue.put({
+                'type': 'update_settings',
+                'camera_settings': camera_settings,
+                'processing_settings': processing_settings
+            })
+            self.add_log_message("Settings applied successfully")
+            
+            # Log the settings for debugging
+            self.add_log_message(f"Camera: Exposure={camera_settings['exposure_time']}ms, Gain={camera_settings['gain']}dB")
+            self.add_log_message(f"Processing: Ball Sensitivity={processing_settings['ball_sensitivity']}%")
+            
+        except Exception as e:
+            self.add_log_message(f"Failed to apply settings: {e}")
+    
+    @Slot()
+    def reset_settings(self):
+        """Reset all settings to default values"""
+        # Reset camera settings
+        self.exposure_time_input.setValue(10.0)
+        self.gain_input.setValue(1.0)
+        self.wb_red_input.setValue(1.0)
+        self.wb_blue_input.setValue(1.0)
+        self.brightness_input.setValue(0)
+        self.contrast_input.setValue(1.0)
+        self.gamma_input.setValue(1.0)
+        self.framerate_input.setValue(30)
+        
+        # Reset processing settings
+        self.ball_sensitivity_input.setValue(50)
+        self.ball_size_min_input.setValue(5)
+        self.ball_size_max_input.setValue(50)
+        self.field_threshold_input.setValue(128)
+        self.kalman_strength_input.setValue(75)
+        self.goal_sensitivity_input.setValue(60)
+        self.processing_resolution_input.setCurrentIndex(1)
+        
+        self.add_log_message("Settings reset to defaults")
     
     # ============= UPDATE METHODS =============
     
@@ -981,3 +1385,4 @@ class KickerMainWindow(QMainWindow):
         
         event.accept()
         print("GUI closeEvent abgeschlossen.")
+
