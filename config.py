@@ -2,7 +2,7 @@
 
 # ================== VIDEO & CAMERA SETTINGS ==================
 # VIDEO_PATH = "C:\\Users\\Tim\\OneDrive - TH Köln\\03_Hochschule\\6_Semester\\Kicker_Projekt\\Test-Videos\\IDS_Cam2\\08.avi"
-VIDEO_PATH = "C:\\Users\\joshu\\OneDrive - TH Köln\\Kicker (Kicker Klaus) - General\\Kicker_Videos\\2025-07-31_IDS_Cam_250fps_mit_neuen_Figuren\\13.avi"
+VIDEO_PATH = "C:\\Users\\Lola\\Desktop\\TH_Jose\\KAT_Projekt\\videos\\IDS_Cam_250fps\\12.avi"
 IS_LIVE = False
 
 CAM_WIDTH = 1440
@@ -93,6 +93,8 @@ FIELD_MIN_AREA = 50000  # Minimum field size in pixels
 FIELD_STABILITY_FRAMES = 1  # Frames for stable detection
 GOAL_DETECTION_CONFIDENCE = 0.7
 MIN_GOAL_AREA = 800 * AREA_RATIO # Minimum size for goal detection
+FIELD_WIDTH_M = 1.18  # 118 cm
+FIELD_HEIGHT_M = 0.68 # 68 cm
 
 # Goal scoring system
 GOAL_DISAPPEAR_FRAMES = 15  # Frames without detection to count as goal
