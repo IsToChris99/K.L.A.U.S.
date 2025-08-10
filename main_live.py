@@ -570,3 +570,4 @@ if __name__ == "__main__":
     # video_path and quse_webcam parameters are kept for compatibility but not used
     tracker = CombinedTracker()
     tracker.run()
+    
