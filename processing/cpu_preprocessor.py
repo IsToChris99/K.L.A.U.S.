@@ -101,10 +101,13 @@ class CPUPreprocessor:
     
     def process_frame(self, bayer_frame):
         """Processes a single Bayer frame through the entire pipeline.
-        Returns the undistorted RGB frame in resized and original resolution."""
+        Returns all intermediate results: (final_frame, rgb_frame, undistorted_frame)"""
+        # Step 1: Demosaicing - Bayer to RGB
         rgb_frame = cv2.cvtColor(bayer_frame, cv2.COLOR_BayerRG2RGB)
-        # Apply undistortion
+        # Step 2: Apply undistortion
         undist_frame = self.undistort_frame(rgb_frame)
-        # Resize to target size
+        # Step 3: Resize to target size
         resized_frame = cv2.resize(undist_frame, (self.target_width, self.target_height))
-        return resized_frame, undist_frame
+        
+        # Return all three stages: final, rgb_demosaiced, undistorted_full_res
+        return resized_frame, rgb_frame, undist_frame
