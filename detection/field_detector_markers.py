@@ -216,13 +216,13 @@ class FieldDetector:
             return None
 
         # Define destination points for perspective transformation
-        field_width = frame.shape[0] * 0.9
+        field_width = frame.shape[1] * 0.9 # frame.shape[1] is the width of the frame!
         field_height = field_width * (68 / 118)
         dst_points_perspective = np.array([
-                                [frame.shape[0] * 0.05, (frame.shape[1] - field_height)/2],
-                                [frame.shape[0] * 0.95, (frame.shape[1] - field_height)/2],
-                                [frame.shape[0] * 0.95, frame.shape[1] - ((frame.shape[1] - field_height) /2)],
-                                [frame.shape[0] * 0.05, frame.shape[1] - ((frame.shape[1] - field_height) /2)]
+                                [frame.shape[1] * 0.05, (frame.shape[0] - field_height)/2],
+                                [frame.shape[1] * 0.95, (frame.shape[0] - field_height)/2],
+                                [frame.shape[1] * 0.95, frame.shape[0] - ((frame.shape[0] - field_height) /2)],
+                                [frame.shape[1] * 0.05, frame.shape[0] - ((frame.shape[0] - field_height) /2)]
                             ], dtype=np.float32)
         
         # Create transformation matrix
@@ -286,7 +286,7 @@ class FieldDetector:
                     deviation = np.linalg.norm(self.previous_ema_corners[i] - ema_field_corners[i])
                     max_deviation = max(max_deviation, deviation)
                 
-                if (max_deviation > 20 or max_deviation <= 1) and self.calibrated:
+                if (max_deviation > 20 or max_deviation <= 2) and self.calibrated:
                     self.new_field_metrics = False
                     return True
                 
@@ -297,8 +297,8 @@ class FieldDetector:
 
             avg_field_corners = ema_field_corners
 
-            metrics = self.calculate_field_metrics(avg_field_corners, frame)
-            goals = self.detect_goals(frame, metrics['corners'])
+            self.calculate_field_metrics(avg_field_corners, frame)
+            goals = self.detect_goals(frame, self.field_corners)
 
             self.field_corners = avg_field_corners
             self.goals = goals

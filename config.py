@@ -26,7 +26,7 @@ HEIGHT_RATIO = DETECTION_HEIGHT / REFERENCE_HEIGHT
 AREA_RATIO = WIDTH_RATIO * HEIGHT_RATIO
 
 # ================== CALIBRATION FILES ==================
-CAMERA_CALIBRATION_FILE = "Z_Archive\\Cam_Lens_Calibration\\calibration_data.json"
+CAMERA_CALIBRATION_FILE = "calibration\\calibration_data.json"
 FIELD_CALIBRATION_FILE = "detection\\field_calibration.json"
 
 # ================== BALL DETECTION (HSV VALUES) ==================
@@ -86,13 +86,15 @@ GOAL_UPPER = (180, 255, 255)
 # Ball tracking
 BALL_SMOOTHER_WINDOW_SIZE = 500  # Optimized balance between smoothing and responsiveness
 BALL_MAX_MISSING_FRAMES = 100
-BALL_CONFIDENCE_THRESHOLD = 0.6
+BALL_CONFIDENCE_THRESHOLD = 0.5
 
 # Field tracking
 FIELD_MIN_AREA = 50000  # Minimum field size in pixels
 FIELD_STABILITY_FRAMES = 1  # Frames for stable detection
 GOAL_DETECTION_CONFIDENCE = 0.7
 MIN_GOAL_AREA = 800 * AREA_RATIO # Minimum size for goal detection
+FIELD_WIDTH_M = 1.18  # 118 cm
+FIELD_HEIGHT_M = 0.68 # 68 cm
 
 # Goal scoring system
 GOAL_DISAPPEAR_FRAMES = 15  # Frames without detection to count as goal

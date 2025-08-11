@@ -2,10 +2,11 @@ import sys
 import time
 import threading
 import multiprocessing as mp
+from multiprocessing import shared_memory
 import queue
 import numpy as np
-import cv2
 from PySide6.QtWidgets import QApplication
+# import qdarkstyle
 
 # Lokale Imports
 from detection.ball_detector import BallDetector
@@ -15,8 +16,127 @@ from analysis.goal_scorer import GoalScorer
 from input.ids_camera_sync import IDS_Camera  # Verwende synchrone Version
 from processing.cpu_preprocessor import CPUPreprocessor
 from processing.gpu_preprocessor import GPUPreprocessor
-from display.qt_window_multiprocess import KickerMainWindow
-import config
+from display.qt_window_structured import KickerMainWindow
+
+
+# ================== WORKER PROCESSES (Field/Ball) ==================
+
+class FieldWorkerProcess(mp.Process):
+    """Own process for field detection working on a shared memory frame."""
+    def __init__(self, shm_name, shape, dtype, tick_queue, result_queue, running_event):
+        super().__init__()
+        self.shm_name = shm_name
+        self.shape = tuple(shape)
+        self.dtype = np.dtype(dtype).str  # ensure picklable
+        self.tick_queue = tick_queue
+        self.result_queue = result_queue
+        self.running_event = running_event
+
+        self.detector = None
+
+    def run(self):
+        # Late imports safe for spawn
+        from detection.field_detector_markers import FieldDetector
+        import numpy as _np
+        import queue as _queue
+
+        shm = shared_memory.SharedMemory(name=self.shm_name)
+        frame = _np.ndarray(self.shape, dtype=_np.dtype(self.dtype), buffer=shm.buf)
+        self.detector = FieldDetector()
+
+        while self.running_event.is_set():
+            try:
+                seq = self.tick_queue.get(timeout=0.2)
+            except _queue.Empty:
+                continue
+
+            # Run calibration/detection on current shared frame
+            try:
+                self.detector.calibrate(frame)
+            except Exception:
+                # Robustness: swallow per-frame errors
+                pass
+
+            result = {
+                'seq': seq,
+                'field_corners': getattr(self.detector, 'field_corners', None),
+                'goals': getattr(self.detector, 'goals', []),
+                'calibrated': getattr(self.detector, 'calibrated', False),
+                'M_field': getattr(self.detector, 'field_transform_matrix', None),
+                'M_persp': getattr(self.detector, 'perspective_transform_matrix', None)
+            }
+
+            if not self.result_queue.full():
+                self.result_queue.put(result)
+
+        shm.close()
+
+
+class BallWorkerProcess(mp.Process):
+    """Own process for ball detection working on a shared memory frame and optional field state."""
+    def __init__(self, shm_name, shape, dtype, tick_queue, field_state_queue, result_queue, running_event):
+        super().__init__()
+        self.shm_name = shm_name
+        self.shape = tuple(shape)
+        self.dtype = np.dtype(dtype).str
+        self.tick_queue = tick_queue
+        self.field_state_queue = field_state_queue  # parent broadcasts latest field state
+        self.result_queue = result_queue
+        self.running_event = running_event
+
+        self.detector = None
+        self.latest_field = {'field_corners': None, 'goals': []}
+
+    def run(self):
+        # Late imports safe for spawn
+        from detection.ball_detector import BallDetector
+        import numpy as _np
+        import queue as _queue
+
+        shm = shared_memory.SharedMemory(name=self.shm_name)
+        frame = _np.ndarray(self.shape, dtype=_np.dtype(self.dtype), buffer=shm.buf)
+        self.detector = BallDetector()
+
+        while self.running_event.is_set():
+            # Drain field state queue (keep only latest)
+            try:
+                while True:
+                    self.latest_field = self.field_state_queue.get_nowait()
+            except _queue.Empty:
+                pass
+
+            # Wait for tick
+            try:
+                seq = self.tick_queue.get(timeout=0.2)
+            except _queue.Empty:
+                continue
+
+            field_corners = self.latest_field.get('field_corners')
+            goals = self.latest_field.get('goals', [])
+
+            # Run detection on shared frame
+            try:
+                detection_result = self.detector.detect_ball(frame, field_corners)
+                self.detector.update_tracking(detection_result, field_corners)
+            except Exception:
+                detection_result = (None, 0, 0.0, None)
+
+            ball_position = detection_result[0] if isinstance(detection_result, (list, tuple)) else None
+
+            result = {
+                'seq': seq,
+                'ball_data': {
+                    'detection': detection_result,
+                    'smoothed_pts': list(getattr(self.detector, 'smoothed_pts', [])),
+                    'missing_counter': getattr(self.detector, 'missing_counter', 0),
+                    'ball_position': ball_position
+                }
+            }
+
+            if not self.result_queue.full():
+                self.result_queue.put(result)
+
+        shm.close()
 
 # ================== PROCESSING PROCESS ==================
 
@@ -35,49 +155,44 @@ class ProcessingProcess(mp.Process):
         # Diese Objekte werden INNERHALB des neuen Prozesses erstellt
         self.ball_detector = None
         self.field_detector = None
-        #self.player_detector = None  # TODO: Implementierung ausstehend
+        # self.player_detector = None  # TODO: Implementierung ausstehend
         self.preprocessor = None
         self.cpu_preprocessor = None
         self.gpu_preprocessor = None
         self.goal_scorer = None
-        
+
         # Processing mode control
         self.use_gpu_processing = True  # Start with GPU processing by default
 
         # Zustand für den "One-Frame-Lag"
         self.latest_M_persp = np.identity(3)
         self.latest_M_field = np.identity(3)
-        
+
         # Field corners für eingeschränkte Ball-Suche
         self.field_corners = None
         self.goals = []
-        
+
         # Calibration state - Always active like in main_live.py
         self.calibration_mode = True
-        
+
         # FPS tracking for different components
         self.fps_trackers = {
             'preprocessing': {'count': 0, 'last_time': time.time()},
             'ball_detection': {'count': 0, 'last_time': time.time()},
-            'field_detection': {'count': 0, 'last_time': time.time()}
+            'field_detection': {'count': 0, 'last_time': time.time()},
         }
         self.current_fps = {
             'camera': 0.0,
-            'preprocessing': 0.0, 
+            'preprocessing': 0.0,
             'ball_detection': 0.0,
-            'field_detection': 0.0
+            'field_detection': 0.0,
         }
 
     def run(self):
         """Die Hauptschleife des Verarbeitungsprozesses."""
         print("ProcessingProcess gestartet.")
 
-        # Initialisiere alle Objekte hier, um sicherzustellen, dass sie im richtigen Prozess leben
-        self.ball_detector = BallDetector()
-        self.field_detector = FieldDetector()
-        #self.player_detector = PlayerDetector()
-        
-        # Initialize both CPU and GPU preprocessors
+        # Initialize preprocessors in this process
         try:
             self.gpu_preprocessor = GPUPreprocessor()
             print("GPU preprocessor initialized successfully")
@@ -85,187 +200,189 @@ class ProcessingProcess(mp.Process):
             print(f"GPU preprocessor initialization failed: {e}")
             self.gpu_preprocessor = None
             self.use_gpu_processing = False
-            
+
         self.cpu_preprocessor = CPUPreprocessor()
         print("CPU preprocessor initialized successfully")
-        
-        # Set active preprocessor based on mode
+
         self.preprocessor = self.gpu_preprocessor if self.use_gpu_processing and self.gpu_preprocessor else self.cpu_preprocessor
-        
         self.goal_scorer = GoalScorer()
 
-        while self.running_event.is_set():
-            # Check for commands from UI
-            try:
-                while not self.command_queue.empty():
-                    command = self.command_queue.get_nowait()
-                    self.handle_command(command)
-            except:
-                pass  # No commands or error reading - continue
-                
-            try:
-                # 1. Hole den nächsten rohen Frame
-                raw_data = self.raw_frame_queue.get(timeout=1)
-                
-                # Extract frame and camera FPS if available
-                if isinstance(raw_data, tuple):
-                    raw_frame, camera_fps = raw_data
-                    self.current_fps['camera'] = camera_fps
-                else:
-                    raw_frame = raw_data
-            except queue.Empty:
-                continue
+        # Shared memory and worker processes
+        shm = None
+        shm_name = None
+        shm_shape = None
+        shm_dtype = None
+        seq = 0
 
-            # 2. Preprocessing (Warp) mit der Matrix vom VORHERIGEN Frame
-            preprocessing_start = time.time()
-            # CPUPreprocessor gibt (resized_frame, undist_frame) zurück - wir nehmen das erste
-            preprocessed_result = self.preprocessor.process_frame(raw_frame)
-            if isinstance(preprocessed_result, tuple):
-                preprocessed_frame = preprocessed_result[0]  # resized_frame für die Verarbeitung
-            else:
-                preprocessed_frame = preprocessed_result
-            self.update_fps_tracker('preprocessing', preprocessing_start)
-            
-            # 3. Starte alle drei Erkennungen parallel mit Threads
-            results = {}
-            
-            # --- Thread-Funktionen definieren ---
-            def field_task():
-                field_start = time.time()
-                # Optimierte Kalibrierung - jetzt schnell genug für jeden Frame
-                if self.calibration_mode:
-                    before_calibration = time.perf_counter_ns()
-                    self.field_detector.calibrate(preprocessed_frame)
-                    after_calibration = time.perf_counter_ns()
-                    calibration_time = (after_calibration - before_calibration) / 1e9
-                    # print(f'\rCalibration attempt took: {calibration_time:.4f} seconds', end='')
-                
-                # Store current field data in results
-                results['field_calibrated'] = self.field_detector.calibrated
-                results['field_corners'] = self.field_detector.field_corners
-                results['goals'] = self.field_detector.goals
-                results['field_contour'] = getattr(self.field_detector, 'field_contour', None)
-                results['field_bounds'] = self.field_detector.field_corners  # Use field_corners as field_bounds
-                results['field_rect_points'] = getattr(self.field_detector, 'field_rect_points', None)
-                
-                # Calculate field width and pixel-to-cm ratio (wie in main_live.py)
-                if (results['field_corners'] is not None and len(results['field_corners']) >= 2 
-                    and results['field_corners'][0] is not None 
-                    and results['field_corners'][1] is not None):
-                    field_width = results['field_corners'][1][0] - results['field_corners'][0][0]
-                    px_to_cm_ratio = field_width / 118 if field_width != 0 else 0
-                    # Store for potential future use
-                    results['field_width'] = field_width
-                    results['px_to_cm_ratio'] = px_to_cm_ratio
-                else:
-                    results['field_width'] = 0
-                    results['px_to_cm_ratio'] = 0
-                
-                self.update_fps_tracker('field_detection', field_start)
+        # IPC queues for workers
+        field_tick_q = mp.Queue(maxsize=2)
+        ball_tick_q = mp.Queue(maxsize=2)
+        field_result_q = mp.Queue(maxsize=5)
+        ball_result_q = mp.Queue(maxsize=5)
+        field_state_broadcast_q = mp.Queue(maxsize=5)
 
-            def ball_task():
-                ball_start = time.time()
-                # Field corners für eingeschränkte Ball-Suche (wie in main_live.py)
-                field_corners = None
-                goals = []
-                if results.get('goals'):
-                    goals = results['goals']
-                
-                # Ball detection with field_corners (wie in main_live.py)
-                detection_result = self.ball_detector.detect_ball(preprocessed_frame, self.field_corners)
-                self.ball_detector.update_tracking(detection_result, self.field_corners)
+        field_proc = None
+        ball_proc = None
 
-                # Goal scoring system update (wie in main_live.py)
-                ball_position = detection_result[0] if detection_result[0] is not None else None
-                self.goal_scorer.update_ball_tracking(
-                    ball_position, 
-                    goals, 
-                    field_corners, 
-                    self.ball_detector.missing_counter
-                )
-                
-                # Ball-Ergebnisse in results speichern (wie in main_live.py)
-                results['ball_data'] = {
-                    'detection': detection_result,
-                    'smoothed_pts': list(self.ball_detector.smoothed_pts),
-                    'missing_counter': self.ball_detector.missing_counter,
-                    'ball_position': ball_position
+        try:
+            while self.running_event.is_set():
+                # Handle UI commands
+                try:
+                    while not self.command_queue.empty():
+                        command = self.command_queue.get_nowait()
+                        self.handle_command(command)
+                except Exception:
+                    pass
+
+                # Get next raw frame
+                try:
+                    raw_data = self.raw_frame_queue.get(timeout=1)
+                    if isinstance(raw_data, tuple):
+                        raw_frame, camera_fps = raw_data
+                        self.current_fps['camera'] = camera_fps
+                    else:
+                        raw_frame = raw_data
+                except queue.Empty:
+                    continue
+
+                # Preprocess frame once in parent process
+                preprocessing_start = time.time()
+                preprocessed_result = self.preprocessor.process_frame(raw_frame)
+                preprocessed_frame = preprocessed_result[0] if isinstance(preprocessed_result, tuple) else preprocessed_result
+                self.update_fps_tracker('preprocessing', preprocessing_start)
+
+                # Initialize shared memory and workers on first frame
+                if shm is None:
+                    shm_shape = preprocessed_frame.shape
+                    shm_dtype = preprocessed_frame.dtype
+                    shm = shared_memory.SharedMemory(create=True, size=preprocessed_frame.nbytes)
+                    shm_name = shm.name
+
+                    field_proc = FieldWorkerProcess(shm_name, shm_shape, shm_dtype, field_tick_q, field_result_q, self.running_event)
+                    ball_proc = BallWorkerProcess(shm_name, shm_shape, shm_dtype, ball_tick_q, field_state_broadcast_q, ball_result_q, self.running_event)
+                    field_proc.start()
+                    ball_proc.start()
+                    print(f"Spawned Field/Ball worker processes using shared memory: {shm_name}")
+
+                # Write current frame to shared memory (copy once)
+                np_view = np.ndarray(shm_shape, dtype=shm_dtype, buffer=shm.buf)
+                np_view[:] = preprocessed_frame
+
+                seq += 1
+                # Notify workers with lightweight tick
+                for q in (field_tick_q, ball_tick_q):
+                    try:
+                        if not q.full():
+                            q.put(seq, block=False)
+                    except Exception:
+                        pass
+
+                # Collect field results (drain queue)
+                results = {}
+                try:
+                    while True:
+                        fr = field_result_q.get_nowait()
+                        results.update({
+                            'field_corners': fr.get('field_corners'),
+                            'goals': fr.get('goals'),
+                            'field_calibrated': fr.get('calibrated'),
+                            'M_field': fr.get('M_field'),
+                            'M_persp': fr.get('M_persp'),
+                        })
+                        # Update cached matrices
+                        if results.get('M_field') is not None:
+                            self.latest_M_field = results['M_field']
+                        if results.get('M_persp') is not None:
+                            self.latest_M_persp = results['M_persp']
+                        # Broadcast latest field state to ball worker
+                        try:
+                            if not field_state_broadcast_q.full():
+                                field_state_broadcast_q.put({
+                                    'field_corners': fr.get('field_corners'),
+                                    'goals': fr.get('goals'),
+                                }, block=False)
+                        except Exception:
+                            pass
+                        # FPS accounting for field detection
+                        self.update_fps_tracker('field_detection', time.time())
+                except queue.Empty:
+                    pass
+
+                # Collect ball results (drain queue)
+                try:
+                    while True:
+                        br = ball_result_q.get_nowait()
+                        results['ball_data'] = br.get('ball_data')
+                        # FPS accounting for ball detection
+                        self.update_fps_tracker('ball_detection', time.time())
+                except queue.Empty:
+                    pass
+
+                # Update goal scorer with latest data
+                if results.get('ball_data'):
+                    ball_pos = results['ball_data'].get('ball_position')
+                    velocity = None
+                    det = results['ball_data'].get('detection')
+                    if isinstance(det, (list, tuple)) and len(det) >= 4:
+                        velocity = det[3]
+                    self.goal_scorer.update_ball_tracking(
+                        ball_pos,
+                        results.get('goals', []),
+                        results.get('field_corners'),
+                        results['ball_data'].get('missing_counter', 0),
+                        ball_velocity=velocity,
+                    )
+                    results['score'] = self.goal_scorer.get_score() if hasattr(self.goal_scorer, 'get_score') else {'player1': 0, 'player2': 0}
+
+                # Package for UI
+                final_package = {
+                    'display_frame': preprocessed_frame,
+                    'ball_data': results.get('ball_data'),
+                    'player_data': results.get('player_data'),
+                    'score': results.get('score', {'player1': 0, 'player2': 0}),
+                    'M_field': results.get('M_field', self.latest_M_field),
+                    'fps_data': self.current_fps.copy(),
+                    'processing_mode': 'GPU' if self.use_gpu_processing else 'CPU',
+                    'field_data': {
+                        'calibrated': results.get('field_calibrated', False),
+                        'field_contour': results.get('field_contour'),
+                        'field_corners': results.get('field_corners'),
+                        'field_bounds': results.get('field_corners'),
+                        'field_rect_points': results.get('field_rect_points'),
+                        'goals': results.get('goals', []),
+                        'calibration_mode': self.calibration_mode,
+                    },
                 }
-                
-                # Check for goals
-                score = self.goal_scorer.get_score()
-                results['score'] = score
-                
-                self.update_fps_tracker('ball_detection', ball_start)
 
-            def player_task():
-                # TODO: Player-Erkennung noch nicht implementiert
-                # player_data = self.player_detector.detect(preprocessed_frame)
-                # results['player_data'] = player_data
-                results['player_data'] = None  # Placeholder
-                return
+                if not self.results_queue.full():
+                    self.results_queue.put(final_package)
 
-            # --- Threads erstellen und starten ---
-            thread_field = threading.Thread(target=field_task)
-            thread_ball = threading.Thread(target=ball_task)
-            #thread_player = threading.Thread(target=player_task)  # TODO: Player-Erkennung auskommentiert
-            
-            thread_field.start()
-            thread_ball.start()
-            #thread_player.start()  # TODO: Player-Erkennung auskommentiert
-            
-            # --- Wait for both threads to complete ---
-            thread_field.join()
-            thread_ball.join()
-            #thread_player.join()  # TODO: Player-Erkennung auskommentiert
+        finally:
+            # Cleanup workers and shared memory
+            for proc in (field_proc, ball_proc):
+                if proc is not None:
+                    proc.join(timeout=1)
+            for proc in (field_proc, ball_proc):
+                if proc is not None and proc.is_alive():
+                    proc.terminate()
+                    proc.join(timeout=1)
+            if shm is not None:
+                try:
+                    shm.close()
+                    shm.unlink()
+                except Exception:
+                    pass
+            print("ProcessingProcess beendet.")
 
-            # 4. Aktualisiere die Matrizen und Field-Daten für den NÄCHSTEN Frame
-            if results.get('M_persp') is not None:
-                self.latest_M_persp = results['M_persp']
-            if results.get('M_field') is not None:
-                self.latest_M_field = results['M_field']
-
-            # Update field corners and goals for next iteration
-            if results.get('field_corners') is not None:
-                self.field_corners = results['field_corners']
-            if results.get('goals') is not None:
-                self.goals = results['goals']
-                
-            # 5. Stelle ein komplettes Ergebnispaket für die UI zusammen
-            final_package = {
-                "display_frame": preprocessed_frame,
-                "ball_data": results.get('ball_data'),
-                "player_data": results.get('player_data'),
-                "score": results.get('score', {'player1': 0, 'player2': 0}),
-                "M_field": self.latest_M_field,
-                "fps_data": self.current_fps.copy(),  # Add FPS data
-                "processing_mode": "GPU" if self.use_gpu_processing else "CPU",  # Add processing mode info
-                "field_data": {
-                    'calibrated': self.field_detector.calibrated if self.field_detector else False,
-                    'field_contour': results.get('field_contour'),
-                    'field_corners': results.get('field_corners'),
-                    'field_bounds': results.get('field_bounds'),
-                    'field_rect_points': results.get('field_rect_points'),
-                    'goals': results.get('goals', []),
-                    'calibration_mode': self.calibration_mode
-                }
-            }
-
-            # 6. Sende das Paket an die UI
-            if not self.results_queue.full():
-                self.results_queue.put(final_package)
-
-        print("ProcessingProcess beendet.")
-    
     def update_fps_tracker(self, component, start_time):
         """Update FPS tracking for a specific component"""
         if component not in self.fps_trackers:
             return
-            
+
         current_time = time.time()
         tracker = self.fps_trackers[component]
         tracker['count'] += 1
-        
+
         # Calculate FPS every second
         time_diff = current_time - tracker['last_time']
         if time_diff >= 1.0:
@@ -273,7 +390,7 @@ class ProcessingProcess(mp.Process):
             self.current_fps[component] = fps
             tracker['count'] = 0
             tracker['last_time'] = current_time
-    
+
     def handle_command(self, command):
         """Handle commands from the UI process"""
         if command.get('type') == 'reset_score':
@@ -283,13 +400,13 @@ class ProcessingProcess(mp.Process):
         elif command.get('type') == 'toggle_processing_mode':
             self.toggle_processing_mode()
         # Field calibration is now automatic - removed manual calibration commands
-        
+
         # Add more command types as needed
-        
+
     def toggle_processing_mode(self):
         """Toggle between CPU and GPU preprocessing"""
         self.use_gpu_processing = not self.use_gpu_processing
-        
+
         # Switch preprocessor
         if self.use_gpu_processing and self.gpu_preprocessor is not None:
             try:
@@ -369,6 +486,7 @@ def camera_thread_func(raw_frame_queue, running_event):
 def main_gui():
     """Startet die gesamte Anwendung: UI, Kamera-Thread und Processing-Prozess."""
     app = QApplication(sys.argv)
+    # app.setStyleSheet(qdarkstyle.load_stylesheet_pyside6())  # Dark mode for better visibility
 
     # 1. Erstelle Kommunikationsmittel
     # Ein Event, um alle Teile sauber zu beenden

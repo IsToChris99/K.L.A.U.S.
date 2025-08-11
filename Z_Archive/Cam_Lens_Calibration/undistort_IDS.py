@@ -64,6 +64,8 @@ class UndistortVideo:
             # Anzeigen
             undistorted = cv2.resize(undistorted, (720, 540))  # Optional: Framegröße anpassen
             cv2.imshow('Undistorted', undistorted)
+            frame2 = cv2.resize(frame, (720, 540))  # Optional: Originalgröße anpassen
+            cv2.imshow('Original', frame2)
 
             if cv2.waitKey(1) == 27:  # ESC-Taste
                 break

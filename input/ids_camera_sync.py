@@ -29,6 +29,15 @@ class IDS_Camera:
         self._last_frame_id = -1
         self._total_dropped_frames = 0
         self._acquisition_active = False
+        
+        # Store default values for runtime adjustment
+        self._default_settings = {
+            "exposure_time": 2000.0,
+            "gain": 10.0,
+            "black_level": 10.0,
+            "frame_rate_target": 250.0,
+            "white_balance_auto": "Off"
+        }
 
         self._initialize_camera()
 
@@ -103,11 +112,12 @@ class IDS_Camera:
         settings = [
             ("PixelFormat", "BayerRG8", "SetCurrentEntry"),
             ("AcquisitionFrameRateTargetEnable", True, "SetValue"),
-            ("AcquisitionFrameRateTarget", 250.0, "SetValue"),
-            ("ExposureTime", 2000.0, "SetValue"),
+            ("AcquisitionFrameRateTarget", self._default_settings["frame_rate_target"], "SetValue"),
+            ("ExposureTime", self._default_settings["exposure_time"], "SetValue"),
             ("GainAuto", "Off", "SetCurrentEntry"),
-            ("Gain", 10.0, "SetValue"),
-            ("BlackLevel", 10.0, "SetValue"),
+            ("Gain", self._default_settings["gain"], "SetValue"),
+            ("BlackLevel", self._default_settings["black_level"], "SetValue"),
+            ("BalanceWhiteAuto", self._default_settings["white_balance_auto"], "SetCurrentEntry"),
         ]
         
         for node_name, value, method in settings:
@@ -306,6 +316,148 @@ class IDS_Camera:
                 print(f"WARN: Exposure value {exposure_us} is out of range ({min_val}-{max_val}).")
         except Exception as e:
             print(f"ERROR: Failed to set exposure: {e}")
+
+    def get_exposure(self) -> float:
+        """Get current camera exposure time."""
+        try:
+            exp_node = self._nodemap_remote.FindNode("ExposureTime")
+            return exp_node.Value()
+        except Exception as e:
+            print(f"ERROR: Failed to get exposure: {e}")
+            return self._default_settings["exposure_time"]
+
+    def set_gain(self, gain: float):
+        """Set camera gain."""
+        try:
+            gain_node = self._nodemap_remote.FindNode("Gain")
+            min_val, max_val = gain_node.Minimum(), gain_node.Maximum()
+            
+            if min_val <= gain <= max_val:
+                gain_node.SetValue(gain)
+                print(f"Gain set to {gain}.")
+            else:
+                print(f"WARN: Gain value {gain} is out of range ({min_val}-{max_val}).")
+        except Exception as e:
+            print(f"ERROR: Failed to set gain: {e}")
+
+    def get_gain(self) -> float:
+        """Get current camera gain."""
+        try:
+            gain_node = self._nodemap_remote.FindNode("Gain")
+            return gain_node.Value()
+        except Exception as e:
+            print(f"ERROR: Failed to get gain: {e}")
+            return self._default_settings["gain"]
+
+    def set_black_level(self, black_level: float):
+        """Set camera black level."""
+        try:
+            bl_node = self._nodemap_remote.FindNode("BlackLevel")
+            min_val, max_val = bl_node.Minimum(), bl_node.Maximum()
+            
+            if min_val <= black_level <= max_val:
+                bl_node.SetValue(black_level)
+                print(f"Black level set to {black_level}.")
+            else:
+                print(f"WARN: Black level value {black_level} is out of range ({min_val}-{max_val}).")
+        except Exception as e:
+            print(f"ERROR: Failed to set black level: {e}")
+
+    def get_black_level(self) -> float:
+        """Get current camera black level."""
+        try:
+            bl_node = self._nodemap_remote.FindNode("BlackLevel")
+            return bl_node.Value()
+        except Exception as e:
+            print(f"ERROR: Failed to get black level: {e}")
+            return self._default_settings["black_level"]
+
+    def set_frame_rate_target(self, frame_rate: float):
+        """Set camera frame rate target."""
+        try:
+            # First check if frame rate control is enabled
+            fr_enable_node = self._nodemap_remote.FindNode("AcquisitionFrameRateTargetEnable")
+            if not fr_enable_node.Value():
+                fr_enable_node.SetValue(True)
+                print("Frame rate target control enabled.")
+            
+            fr_node = self._nodemap_remote.FindNode("AcquisitionFrameRateTarget")
+            min_val, max_val = fr_node.Minimum(), fr_node.Maximum()
+            
+            if min_val <= frame_rate <= max_val:
+                fr_node.SetValue(frame_rate)
+                print(f"Frame rate target set to {frame_rate} fps.")
+            else:
+                print(f"WARN: Frame rate value {frame_rate} is out of range ({min_val}-{max_val}).")
+        except Exception as e:
+            print(f"ERROR: Failed to set frame rate target: {e}")
+
+    def get_frame_rate_target(self) -> float:
+        """Get current camera frame rate target."""
+        try:
+            fr_node = self._nodemap_remote.FindNode("AcquisitionFrameRateTarget")
+            return fr_node.Value()
+        except Exception as e:
+            print(f"ERROR: Failed to get frame rate target: {e}")
+            return self._default_settings["frame_rate_target"]
+
+    def set_white_balance_auto(self, mode: str):
+        """
+        Set white balance auto mode.
+        
+        Args:
+            mode: "Off", "Continuous", or "Once"
+                  Note: "Once" will automatically reset to "Off" after execution
+        """
+        try:
+            wb_node = self._nodemap_remote.FindNode("BalanceWhiteAuto")
+            
+            # Validate mode
+            valid_modes = ["Off", "Continuous", "Once"]
+            if mode not in valid_modes:
+                print(f"WARN: Invalid white balance mode '{mode}'. Valid modes: {valid_modes}")
+                return
+            
+            wb_node.SetCurrentEntry(mode)
+            print(f"White balance auto set to '{mode}'.")
+            
+            # If "Once" was selected, inform user about automatic reset behavior
+            if mode == "Once":
+                print("Note: White balance mode will automatically reset to 'Off' after execution.")
+                
+        except Exception as e:
+            print(f"ERROR: Failed to set white balance auto: {e}")
+
+    def get_white_balance_auto(self) -> str:
+        """Get current white balance auto mode."""
+        try:
+            wb_node = self._nodemap_remote.FindNode("BalanceWhiteAuto")
+            return wb_node.CurrentEntry().StringValue()
+        except Exception as e:
+            print(f"ERROR: Failed to get white balance auto: {e}")
+            return self._default_settings["white_balance_auto"]
+
+    def reset_to_defaults(self):
+        """Reset all camera settings to their default values."""
+        print("Resetting camera settings to defaults...")
+        
+        self.set_exposure(self._default_settings["exposure_time"])
+        self.set_gain(self._default_settings["gain"])
+        self.set_black_level(self._default_settings["black_level"])
+        self.set_frame_rate_target(self._default_settings["frame_rate_target"])
+        self.set_white_balance_auto(self._default_settings["white_balance_auto"])
+        
+        print("Camera settings reset to defaults.")
+
+    def get_current_settings(self) -> Dict[str, any]:
+        """Get all current camera settings as a dictionary."""
+        return {
+            "exposure_time": self.get_exposure(),
+            "gain": self.get_gain(),
+            "black_level": self.get_black_level(),
+            "frame_rate_target": self.get_frame_rate_target(),
+            "white_balance_auto": self.get_white_balance_auto()
+        }
 
     def get_dropped_frame_count(self) -> int:
         """Get the total number of dropped frames since acquisition started."""
