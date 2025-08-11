@@ -15,6 +15,7 @@ class GoalScorer:
     def __init__(self):
         self.player1_goals = 0
         self.player2_goals = 0
+        self.max_goals = 2
         
         self.player1_goal_types = ['left']
         self.player2_goal_types = ['right']
@@ -184,22 +185,40 @@ class GoalScorer:
     def _score_goal(self, goal_type):
         """Counts a goal for the corresponding player"""
         if goal_type in self.player1_goal_types:
-            self.player1_goals += 1
-            scoring_player = "Player 1"
+            if self.player1_goals < self.max_goals:
+                self.player1_goals += 1
+                scoring_player = "Player 1"
+                goal_counted = True
+            else:
+                print(f"Player 1 has already reached maximum goals ({self.max_goals}). Goal not counted.")
+                return
         elif goal_type in self.player2_goal_types:
-            self.player2_goals += 1
-            scoring_player = "Player 2"
+            if self.player2_goals < self.max_goals:
+                self.player2_goals += 1
+                scoring_player = "Player 2"
+                goal_counted = True
+            else:
+                print(f"Player 2 has already reached maximum goals ({self.max_goals}). Goal not counted.")
+                return
         else:
             scoring_player = "Unknown"
+            goal_counted = False
         
-        print(f"GOAL! {scoring_player} scored in {goal_type} goal!")
-        print(f"Score: Player 1| {self.player1_goals} - {self.player2_goals} |Player 2")
+        if goal_counted:
+            print(f"GOAL! {scoring_player} scored in {goal_type} goal!")
+            print(f"Score: Player 1| {self.player1_goals} - {self.player2_goals} |Player 2")
+            
+            # Check if game is won
+            if self.player1_goals == self.max_goals:
+                print(f"GAME WON! Player 1 reached {self.max_goals} goals!")
+            elif self.player2_goals == self.max_goals:
+                print(f"GAME WON! Player 2 reached {self.max_goals} goals!")
 
-        self.goal_scored_recently = True
-        self.goal_scored_time = time.time()
-        self.goal_scored_type = goal_type
-        
-        self._reset_goal_tracking()
+            self.goal_scored_recently = True
+            self.goal_scored_time = time.time()
+            self.goal_scored_type = goal_type
+            
+            self._reset_goal_tracking()
     
     def _reset_goal_tracking(self):
         """Resets goal tracking"""
@@ -234,7 +253,9 @@ class GoalScorer:
         return {
             'player1': self.player1_goals,
             'player2': self.player2_goals,
-            'total_goals': self.player1_goals + self.player2_goals
+            'total_goals': self.player1_goals + self.player2_goals,
+            'max_goals': self.max_goals,
+            'winner': 1 if self.player1_goals >= self.max_goals else (2 if self.player2_goals >= self.max_goals else None)
         }
     
     def reset_score(self):
@@ -252,6 +273,17 @@ class GoalScorer:
         cv2.putText(frame, score_text, (10, frame.shape[0] - 80),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, COLOR_SCORE_TEXT, 2)
         
+        # Check for game won
+        if self.player1_goals >= self.max_goals or self.player2_goals >= self.max_goals:
+            winner = "Player 1" if self.player1_goals >= self.max_goals else "Player 2"
+            win_text = f"{winner} WINS!"
+            # Center the text
+            text_size = cv2.getTextSize(win_text, cv2.FONT_HERSHEY_SIMPLEX, 1.2, 3)[0]
+            text_x = (frame.shape[1] - text_size[0]) // 2
+            text_y = frame.shape[0] // 2
+            cv2.putText(frame, win_text, (text_x, text_y),
+                       cv2.FONT_HERSHEY_SIMPLEX, 1.2, COLOR_GOAL_ALERT, 3)
+        
         # Ball status
         if self.ball_in_goal:
             status_text = f"Ball in {self.ball_in_goal_type} goal"
@@ -266,3 +298,19 @@ class GoalScorer:
         
         cv2.putText(frame, status_text, (10, frame.shape[0] - 50),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+
+    def update_score(self, idx=0, amount=1):
+        """Updates the score for a player"""
+        if idx == 0:
+            self.player1_goals = min(self.player1_goals + amount, self.max_goals)
+        elif idx == 1:
+            self.player2_goals = min(self.player2_goals + amount, self.max_goals)
+        else:
+            print("Invalid player index")
+
+    def set_max_goals(self, max_goals=2, is_infinity=False):
+        """Sets the maximum goals for both players"""
+        if is_infinity:
+            max_goals = 9999
+        self.max_goals = max_goals
+        print(f"Maximum goals set to: {self.max_goals}")

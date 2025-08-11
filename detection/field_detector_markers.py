@@ -79,40 +79,34 @@ class FieldDetector:
 
         if len(contours) != 4:
             self.counter += 1
-            print(f"\rDetected {len(contours)} contours, expected 4. Counter: {self.counter}", end="")
+            if self.counter % 50 == 0:  # Reduzierte Debug-Ausgabe
+                print(f"\rDetected {len(contours)} contours, expected 4. Counter: {self.counter}", end="")
             return None
 
-        # Alle weißen Pixel finden
-        white_pixels = np.column_stack(np.where(self.marker_mask == 255))
-
-        if len(white_pixels) < 4:
+        # Optimierte weiße Pixel-Extraktion
+        y_coords, x_coords = np.where(self.marker_mask == 255)
+        
+        if len(x_coords) < 4:
             return None
         
-        # Optimierte Extrempunkt-Berechnung (vektorisiert)
-        # Koordinaten sind in (y, x) Format von np.where, also umkehren zu (x, y)
-        white_pixels_xy = white_pixels[:, [1, 0]]  # Von (y,x) zu (x,y)
-        
-        # Alle Berechnungen auf einmal (vektorisiert für bessere Performance)
-        x_coords = white_pixels_xy[:, 0]
-        y_coords = white_pixels_xy[:, 1]
-        
+        # Vektorisierte Extrempunkt-Berechnung
         # Top-left: minimale Summe von x+y
-        top_left = white_pixels_xy[np.argmin(x_coords + y_coords)]
+        sum_coords = x_coords + y_coords
+        top_left = np.array([x_coords[np.argmin(sum_coords)], y_coords[np.argmin(sum_coords)]])
         
-        # Top-right: minimale Differenz von y-x
-        top_right = white_pixels_xy[np.argmin(y_coords - x_coords)]
+        # Top-right: minimale Differenz von y-x  
+        diff_coords = y_coords - x_coords
+        top_right = np.array([x_coords[np.argmin(diff_coords)], y_coords[np.argmin(diff_coords)]])
         
         # Bottom-right: maximale Summe von x+y
-        bottom_right = white_pixels_xy[np.argmax(x_coords + y_coords)]
-        
+        bottom_right = np.array([x_coords[np.argmax(sum_coords)], y_coords[np.argmax(sum_coords)]])
+
         # Bottom-left: maximale Differenz von y-x
-        bottom_left = white_pixels_xy[np.argmax(y_coords - x_coords)]
+        bottom_left = np.array([x_coords[np.argmax(diff_coords)], y_coords[np.argmax(diff_coords)]])
         
         # Die vier Eckpunkte als field_corners setzen
         field_corners = np.array([top_left, top_right, bottom_right, bottom_left])
 
-
-        
         return field_corners
     
     def detect_goals(self, frame, field_corners):
@@ -255,15 +249,15 @@ class FieldDetector:
             'field_transform_matrix': self.field_transform_matrix
         }
     
-    def transform_point_to_field_coords(self, point):
-        """Transforms a point to field coordinates using the transformation matrix"""
-        if self.field_transform_matrix is None or point is None:
-            return None
+    # def transform_point_to_field_coords(self, point):
+    #     """Transforms a point to field coordinates using the transformation matrix"""
+    #     if self.field_transform_matrix is None or point is None:
+    #         return None
         
-        pt = np.array([[[point[0], point[1]]]], dtype=np.float32)
-        transformed = cv2.perspectiveTransform(pt, self.field_transform_matrix)
+    #     pt = np.array([[[point[0], point[1]]]], dtype=np.float32)
+    #     transformed = cv2.perspectiveTransform(pt, self.field_transform_matrix)
         
-        return (int(transformed[0][0][0]), int(transformed[0][0][1]))
+    #     return (int(transformed[0][0][0]), int(transformed[0][0][1]))
     
     def calibrate(self, frame):
         """Performs field calibration"""
