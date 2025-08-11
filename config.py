@@ -26,7 +26,7 @@ HEIGHT_RATIO = DETECTION_HEIGHT / REFERENCE_HEIGHT
 AREA_RATIO = WIDTH_RATIO * HEIGHT_RATIO
 
 # ================== CALIBRATION FILES ==================
-CAMERA_CALIBRATION_FILE = "Z_Archive\\Cam_Lens_Calibration\\calibration_data.json"
+CAMERA_CALIBRATION_FILE = "calibration\\calibration_data.json"
 FIELD_CALIBRATION_FILE = "detection\\field_calibration.json"
 
 # ================== BALL DETECTION (HSV VALUES) ==================

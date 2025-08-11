@@ -4,7 +4,6 @@ import threading
 import multiprocessing as mp
 import queue
 import numpy as np
-import cv2
 from PySide6.QtWidgets import QApplication
 # import qdarkstyle
 
@@ -16,8 +15,7 @@ from analysis.goal_scorer import GoalScorer
 from input.ids_camera_sync import IDS_Camera  # Verwende synchrone Version
 from processing.cpu_preprocessor import CPUPreprocessor
 from processing.gpu_preprocessor import GPUPreprocessor
-from display.qt_window_multiprocess import KickerMainWindow
-import config
+from display.qt_window_structured import KickerMainWindow
 
 # ================== PROCESSING PROCESS ==================
 

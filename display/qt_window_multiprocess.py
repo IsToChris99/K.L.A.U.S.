@@ -1,7 +1,13 @@
 import cv2
 import numpy as np
 import time
+import sys
+import os
+
+# Add parent directory to path to find config
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import config
+
 from PySide6.QtCore import Qt, QThread, Signal, Slot, QTimer
 from PySide6.QtGui import QImage, QPixmap, QColor, QMouseEvent
 from PySide6.QtWidgets import (
@@ -10,7 +16,6 @@ from PySide6.QtWidgets import (
     QGroupBox, QCheckBox, QComboBox, QTabWidget, QLineEdit,
     QFormLayout, QSpinBox, QDoubleSpinBox, QSlider
 )
-
 
 class ClickableVideoLabel(QLabel):
     """Custom QLabel that can detect mouse clicks and extract pixel colors"""
@@ -86,8 +91,8 @@ class KickerMainWindow(QMainWindow):
     
     def __init__(self, results_queue, command_queue, running_event):
         super().__init__()
-        self.setWindowTitle("Kicker Klaus - Tracking System (Multi-Process)")
-        self.resize(1400, 900)
+        self.setWindowTitle("K.L.A.U.S. - Kicker Live Analytics Universal System (Standard)")
+        self.resize(1280, 720)
         
         # Multi-processing communication
         self.results_queue = results_queue
@@ -125,11 +130,11 @@ class KickerMainWindow(QMainWindow):
         self.setup_ui()
         self.connect_signals()
         
-        # Timer to poll the results queue
+        # Timer to poll the results queue with optimized rate
         self.update_timer = QTimer()
         self.update_timer.timeout.connect(self.poll_results_queue)
-        self.update_timer.start(10)  # ~60 FPS update rate for UI
-        
+        self.update_timer.start(16)  # ~60 FPS update rate for UI (more reasonable than 100 FPS)
+
         self.add_log_message("GUI initialized with multi-processing architecture")
         
     def setup_ui(self):
@@ -144,11 +149,13 @@ class KickerMainWindow(QMainWindow):
         
         # Create tabs
         self.tracking_tab = self.create_tracking_tab()
+        self.calibration_tab = self.create_calibration_tab()
         self.settings_tab = self.create_settings_tab()
         self.about_tab = self.create_about_tab()
         
         # Add tabs to widget
         self.tab_widget.addTab(self.tracking_tab, "🎯 Tracking")
+        self.tab_widget.addTab(self.calibration_tab, "🎨 Calibration")
         self.tab_widget.addTab(self.settings_tab, "⚙️ Settings")
         self.tab_widget.addTab(self.about_tab, "ℹ️ About")
 
@@ -172,7 +179,7 @@ class KickerMainWindow(QMainWindow):
         # Right side: Controls
         control_layout = self.create_control_section()
         
-        content_layout.addLayout(video_layout, stretch=3)
+        content_layout.addLayout(video_layout, stretch=2)
         content_layout.addLayout(control_layout, stretch=1)
         
         # Main layout assembly
@@ -181,42 +188,212 @@ class KickerMainWindow(QMainWindow):
         
         return tracking_widget
     
-    def create_settings_tab(self):
-        """Creates the camera settings interface tab"""
-        settings_widget = QWidget()
-        main_layout = QVBoxLayout(settings_widget)
+    def create_calibration_tab(self):
+        """Creates the color calibration interface tab"""
+        calibration_widget = QWidget()
+        main_layout = QVBoxLayout(calibration_widget)
         
-        # Title
-        title_label = QLabel("Camera & System Settings")
-        title_label.setStyleSheet("""
-            QLabel {
-                font-size: 24px;
+        # Main container for calibration
+        calibration_container = QGroupBox("Color Calibration and Field Detection")
+        calibration_container.setStyleSheet("""
+            QGroupBox {
+                font-size: 16px;
                 font-weight: bold;
+                border: 3px solid #4CAF50;
+                border-radius: 10px;
+                margin: 10px;
+                padding-top: 15px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px 0 5px;
                 color: #4CAF50;
-                margin: 20px;
-                text-align: center;
             }
         """)
-        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        main_layout.addWidget(title_label)
         
-        # Settings content in horizontal layout
-        settings_content = QHBoxLayout()
+        # Horizontal layout for video and info
+        calibration_horizontal_layout = QHBoxLayout(calibration_container)
         
-        # Left column: Camera Settings
+        # Left side: Video with color picker
+        left_video_layout = QVBoxLayout()
+        
+        # Video label with color picker
+        self.calibration_video_label = ClickableVideoLabel()
+        self.calibration_video_label.setText("Click on video to pick colors - Waiting for video stream...")
+        self.calibration_video_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.calibration_video_label.setStyleSheet("border: 1px solid #9f9f9f; border-radius: 5px;")
+        self.calibration_video_label.setMinimumSize(720, 540)  # 4:3 aspect ratio, larger for calibration
+        self.calibration_video_label.setScaledContents(False)
+        
+        # Connect color picker signal
+        self.calibration_video_label.color_picked.connect(self.on_calibration_color_picked)
+        
+        left_video_layout.addWidget(self.calibration_video_label)
+        
+        # Right side: Color information and controls
+        right_info_layout = QVBoxLayout()
+        
+        # HSV Color Info Box
+        self.color_info_group = QGroupBox("Selected Color Information")
+        self.color_info_group.setStyleSheet("""
+            QGroupBox {
+                font-size: 12px;
+                font-weight: normal;
+                border: 1px solid #9f9f9f;
+                border-radius: 5px;
+                margin-top: 1ex;
+                padding-top: 10px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 20px;
+                padding: 0 5px 0 5px;
+                color: white;
+            }
+        """)
+        
+        color_info_layout = QVBoxLayout(self.color_info_group)
+        
+        # Color preview
+        self.color_preview = QLabel()
+        self.color_preview.setFixedSize(60, 60)
+        self.color_preview.setStyleSheet("border: 1px solid #9f9f9f; border-radius: 5px;")
+        self.color_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.color_preview.setText("No color\nselected")
+        color_info_layout.addWidget(self.color_preview)        
+        
+        # HSV Values
+        self.hsv_label = QLabel("HSV: Not selected")
+        self.hsv_label.setStyleSheet("font-family: monospace; font-size: 12px; margin: 2px;")
+        color_info_layout.addWidget(self.hsv_label)
+                
+        # HSV Range suggestion
+        self.hsv_range_label = QLabel("HSV Range: Not calculated")
+        self.hsv_range_label.setStyleSheet("font-family: monospace; font-size: 10px; margin: 2px; color: #FF6B6B;")
+        self.hsv_range_label.setWordWrap(True)
+        color_info_layout.addWidget(self.hsv_range_label)
+        
+        right_info_layout.addWidget(self.color_info_group)
+        
+        # Calibration controls (placeholder for future features)
+        calibration_controls_group = QGroupBox("Calibration Controls")
+        calibration_controls_group.setStyleSheet("""
+            QGroupBox {
+                font-size: 12px;
+                font-weight: normal;
+                border: 1px solid #9f9f9f;
+                border-radius: 5px;
+                margin-top: 1ex;
+                padding-top: 10px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 20px;
+                padding: 0 5px 0 5px;
+                color: white;
+            }
+        """)
+        
+        controls_layout = QVBoxLayout(calibration_controls_group)
+        
+        # Placeholder buttons
+        self.save_field_color_btn = QPushButton("Save Field Color")
+        self.save_field_color_btn.setEnabled(False)  # Disabled until color is picked
+        
+        self.save_ball_color_btn = QPushButton("Save Ball Color")
+        self.save_ball_color_btn.setEnabled(False)
+        
+        self.reset_calibration_btn = QPushButton("Reset Calibration")        
+        
+        controls_layout.addWidget(self.save_field_color_btn)
+        controls_layout.addWidget(self.save_ball_color_btn)
+        controls_layout.addWidget(self.reset_calibration_btn)
+        
+        right_info_layout.addWidget(calibration_controls_group)
+        
+        # Instructions
+        instructions_label = QLabel("Click on the video to select colors for detectors.")
+        instructions_label.setStyleSheet("color: lightgrey; font-style: italic; margin: 5px;")
+        instructions_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        right_info_layout.addWidget(instructions_label)
+        right_info_layout.addStretch()
+        
+        # Add layouts to horizontal layout
+        calibration_horizontal_layout.addLayout(left_video_layout, stretch=2)
+        calibration_horizontal_layout.addLayout(right_info_layout, stretch=1)
+        
+        main_layout.addWidget(calibration_container)
+        main_layout.addStretch()
+        
+        return calibration_widget
+   
+    def create_settings_tab(self):
+        """Creates the camera settings interface tab"""      
+        settings_widget = QWidget()
+        main_layout = QVBoxLayout(settings_widget)
+
+        # Frame for Camera & System Settings
+        settings_container = QGroupBox("Camera and System Settings")
+        settings_container.setStyleSheet("""
+            QGroupBox {
+                font-size: 16px;
+                font-weight: bold;
+                border: 3px solid #4CAF50;
+                border-radius: 10px;
+                margin: 10px;
+                padding-top: 15px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px 0 5px;
+                color: #4CAF50;
+            }
+        """)
+
+        # Horizontal layout for left (settings) and right (video) areas
+        settings_horizontal_layout = QHBoxLayout(settings_container)
+        
+        # Left side: Settings groups
+        left_settings_layout = QVBoxLayout()
         camera_group = self.create_camera_settings_group()
-        
-        # Right column: Processing Settings
         processing_group = self.create_processing_settings_group()
+        left_settings_layout.addWidget(camera_group)
+        left_settings_layout.addWidget(processing_group)
+        left_settings_layout.addStretch()
         
-        settings_content.addWidget(camera_group, stretch=1)
-        settings_content.addWidget(processing_group, stretch=1)
+        # Right side: Video preview and free space
+        right_preview_layout = QVBoxLayout()
         
-        main_layout.addLayout(settings_content)
+        # Video preview (upper right)
+        self.settings_video_label = QLabel("Live Preview - Waiting for video stream...")
+        self.settings_video_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
-        # Bottom: Action buttons
+        self.settings_video_label.setStyleSheet("border: 1px solid #9f9f9f; border-radius: 5px; margin-top: 1ex; padding-top: 10px;")
+        self.settings_video_label.setMinimumSize(360, 270)  # 4:3 aspect ratio, smaller than main video
+        self.settings_video_label.setScaledContents(False)
+        
+        # Free space (lower right) - placeholder for future features
+        free_space_widget = QWidget()
+        free_space_widget.setStyleSheet("border: 1px dashed #9f9f9f; border-radius: 5px; margin-bottom: 10px;")
+        free_space_label = QLabel("Reserved for future features")
+        free_space_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        free_space_label.setStyleSheet("color: #888888; font-style: italic;")
+        free_space_layout = QVBoxLayout(free_space_widget)
+        free_space_layout.addWidget(free_space_label)
+        
+        right_preview_layout.addWidget(self.settings_video_label, stretch=3)
+        right_preview_layout.addWidget(free_space_widget, stretch=1)
+        
+        # Add left and right areas to horizontal layout
+        settings_horizontal_layout.addLayout(left_settings_layout, stretch=1)
+        settings_horizontal_layout.addLayout(right_preview_layout, stretch=1)
+
+        main_layout.addWidget(settings_container)
+
+        # Action Buttons below the frame
         button_layout = QHBoxLayout()
-        
         self.apply_settings_btn = QPushButton("Apply Settings")
         self.apply_settings_btn.setStyleSheet("""
             QPushButton {
@@ -234,7 +411,6 @@ class KickerMainWindow(QMainWindow):
                 background-color: #3d8b40;
             }
         """)
-        
         self.reset_settings_btn = QPushButton("Reset to Defaults")
         self.reset_settings_btn.setStyleSheet("""
             QPushButton {
@@ -252,27 +428,13 @@ class KickerMainWindow(QMainWindow):
                 background-color: #F57C00;
             }
         """)
-        
         button_layout.addStretch()
         button_layout.addWidget(self.reset_settings_btn)
         button_layout.addWidget(self.apply_settings_btn)
         button_layout.addStretch()
-        
         main_layout.addLayout(button_layout)
         main_layout.addStretch()
-        
-        
-        video_layout = QVBoxLayout()
-        self.video_label = ClickableVideoLabel()
-        self.video_label.setText("Processing gestartet - Warten auf Video-Stream...")
-        self.video_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.video_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.video_label.setStyleSheet("border: 2px solid gray;")
-        self.video_label.setMinimumSize(500, 350)
-        video_layout.addWidget(self.video_label)
 
-        main_layout.addLayout(video_layout)
-        
         return settings_widget
 
     def create_about_tab(self):
@@ -281,7 +443,7 @@ class KickerMainWindow(QMainWindow):
         about_layout = QVBoxLayout(about_widget)
         
         # Headline
-        about_headline = QLabel("KLAUS - Kicker Live Analytics Universal System\nVersion 1.0")
+        about_headline = QLabel("K.L.A.U.S. - Kicker Live Analytics Universal System\nVersion 1.0")
         about_headline.setStyleSheet("""
             QLabel {
                 font-size: 20px;
@@ -299,15 +461,15 @@ class KickerMainWindow(QMainWindow):
             QGroupBox {
                 font-size: 16px;
                 font-weight: bold;
-                border: 2px solid #4CAF50;
+                border: 3px solid #4CAF50;
                 border-radius: 10px;
-                margin: 20px;
+                margin: 10px;
                 padding-top: 15px;
             }
             QGroupBox::title {
                 subcontrol-origin: margin;
-                left: 20px;
-                padding: 0 10px 0 10px;
+                left: 10px;
+                padding: 0 5px 0 5px;
                 color: #4CAF50;
             }
         """)
@@ -321,14 +483,19 @@ class KickerMainWindow(QMainWindow):
         
         # Roles
         roles = [
-            ("Team Leader", "Tim Vesper"),
             ("Processing Architecture", "Tim Vesper"),
-            ("GUI Design & Implementation", "Christian Gunter"),
+            ("Choice of Camera and Lens", "Christian Gunter"),
             ("IDS Camera Integration", "Tim Vesper"),
             ("Camera Calibration", "Christian Gunter"),
-            ("Field & Ball Detection", "Joshua Siemer"),
+            ("GUI Design & Implementation", "Christian Gunter"),
+            ("Color Picker and Calibration", "Roman Heck"),
+            ("Field & Goal Detection", "Joshua Siemer"),
             ("Player Detection", "Roman Heck"),
-            ("Ball Heatmap", "Jose Pineda")
+            ("Ball Tracking", "Joshua Siemer"),
+            ("Ball Speed", "Jose Pineda"),
+            ("Ball Heatmap", "Jose Pineda"),
+            (" ", " "),
+            ("General Development and Improvement", "All Team Members")
         ]
         
         team_layout.addWidget(developers_label)
@@ -347,21 +514,21 @@ class KickerMainWindow(QMainWindow):
 
     def create_camera_settings_group(self):
         """Creates the camera settings group"""
-        camera_group = QGroupBox("📹 Camera Settings")
+        camera_group = QGroupBox("Camera Settings")
         camera_group.setStyleSheet("""
             QGroupBox {
-                font-size: 16px;
-                font-weight: bold;
-                border: 2px solid #4CAF50;
-                border-radius: 10px;
-                margin: 10px;
-                padding-top: 15px;
+                font-size: 12px;
+                font-weight: normal;
+                border: 1px solid #9f9f9f;
+                border-radius: 5px;
+                margin-top: 1ex;
+                padding-top: 10px;
             }
             QGroupBox::title {
                 subcontrol-origin: margin;
-                left: 10px;
+                left: 20px;
                 padding: 0 5px 0 5px;
-                color: #4CAF50;
+                color: white;
             }
         """)
         
@@ -429,21 +596,21 @@ class KickerMainWindow(QMainWindow):
     
     def create_processing_settings_group(self):
         """Creates the processing settings group"""
-        processing_group = QGroupBox("🔧 Processing Settings")
+        processing_group = QGroupBox("Processing Settings")
         processing_group.setStyleSheet("""
             QGroupBox {
-                font-size: 16px;
-                font-weight: bold;
-                border: 2px solid #4CAF50;
-                border-radius: 10px;
-                margin: 10px;
-                padding-top: 15px;
+                font-size: 12px;
+                font-weight: normal;
+                border: 1px solid #9f9f9f;
+                border-radius: 5px;
+                margin-top: 1ex;
+                padding-top: 10px;
             }
             QGroupBox::title {
                 subcontrol-origin: margin;
-                left: 10px;
+                left: 20px;
                 padding: 0 5px 0 5px;
-                color: #4CAF50;
+                color: white;
             }
         """)
         
@@ -542,7 +709,7 @@ class KickerMainWindow(QMainWindow):
                 border: 3px solid #4CAF50;
                 border-radius: 10px;
                 margin: 10px;
-                padding-top: 15px;
+                padding-top: 0px;
             }
             QGroupBox::title {
                 subcontrol-origin: margin;
@@ -596,10 +763,10 @@ class KickerMainWindow(QMainWindow):
             QPushButton {
                 font-size: 14px;
                 font-weight: bold;
+                color: palette(highlighted-text);
+                background-color: #f5f5f5;
                 padding: 3px 10px;
-                background-color: palette(button);
-                color: palette(button-text);
-                border: 1px solid palette(mid);
+                border: 1px solid #4CAF50;
                 border-radius: 4px;
                 min-width: 25px;
                 max-width: 25px;
@@ -607,12 +774,12 @@ class KickerMainWindow(QMainWindow):
                 max-height: 20px;
             }
             QPushButton:hover {
-                background-color: palette(light);
-                border: 1px solid palette(highlight);
+                background-color: #b7c2b7;
+                border: 1px solid #45a049;
             }
             QPushButton:pressed {
-                background-color: palette(dark);
-                color: palette(highlighted-text);
+                background-color: #868f86;
+                border: 1px solid #3d8b40;
             }
         """
         
@@ -670,8 +837,9 @@ class KickerMainWindow(QMainWindow):
             QLabel {
                 font-size: 14px;
                 font-weight: bold;
-                color: #2E7D32;
-                margin-bottom: 10px;
+                color: #4CAF50;
+                margin-bottom: 0;
+                margin-top: 5px;
             }
         """)
         limit_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -686,14 +854,13 @@ class KickerMainWindow(QMainWindow):
                 font-weight: bold;
                 border: 2px solid #4CAF50;
                 border-radius: 10px;
-                margin: 10px;
-                padding-top: 15px;
+                margin: 0;
+                padding-top: 0;
             }
             QGroupBox::title {
                 subcontrol-origin: margin;
                 left: 10px;
-                padding: 0 5px 0 5px;
-                color: #4CAF50;
+                padding: 0 0 0 0;
             }
         """)
         
@@ -799,12 +966,13 @@ class KickerMainWindow(QMainWindow):
     def create_video_section(self):
         """Creates the video display area"""
         video_layout = QVBoxLayout()
-        self.video_label = ClickableVideoLabel()
-        self.video_label.setText("Processing gestartet - Warten auf Video-Stream...")
+        
+        # Use simple QLabel for main video display (no color picking)
+        self.video_label = QLabel("Processing started - Waiting for video stream...")
         self.video_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.video_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.video_label.setStyleSheet("border: 2px solid gray;")
+        self.video_label.setStyleSheet("color: white; border: 1px solid #9f9f9f; border-radius: 5px;")
         self.video_label.setMinimumSize(720, 540)
+        self.video_label.setScaledContents(False)  # Important for aspect ratio
         video_layout.addWidget(self.video_label)
         
         return video_layout
@@ -812,9 +980,6 @@ class KickerMainWindow(QMainWindow):
     def create_control_section(self):
         """Creates the control section"""
         control_layout = QVBoxLayout()
-        
-        # Tracking Controls (modified for multiprocessing)
-        tracking_group = self.create_tracking_controls()
         
         # Visualization Mode
         viz_group = self.create_visualization_controls()
@@ -828,7 +993,6 @@ class KickerMainWindow(QMainWindow):
         # Log Output
         log_group = self.create_log_section()
         
-        control_layout.addWidget(tracking_group)
         control_layout.addWidget(viz_group)
         control_layout.addWidget(settings_group)
         control_layout.addWidget(status_group)
@@ -836,18 +1000,6 @@ class KickerMainWindow(QMainWindow):
         control_layout.addStretch()
         
         return control_layout
-    
-    def create_tracking_controls(self):
-        """Creates the tracking control buttons (adapted for multiprocessing)"""
-        tracking_group = QGroupBox("Processing Controls")
-        tracking_layout = QVBoxLayout(tracking_group)
-        
-        self.stop_btn = QPushButton("Stop Processing")
-        # Removed calibration button - field detection is now automatic
-        
-        tracking_layout.addWidget(self.stop_btn)
-        
-        return tracking_group
     
     def create_visualization_controls(self):
         """Creates the visualization buttons"""
@@ -892,7 +1044,7 @@ class KickerMainWindow(QMainWindow):
     
     def create_status_section(self):
         """Creates the status section with detailed FPS displays"""
-        status_group = QGroupBox("Status & Performance")
+        status_group = QGroupBox("Status and Performance")
         status_layout = QVBoxLayout(status_group)
         
         self.process_status_label = QLabel("Process: Running")
@@ -934,7 +1086,6 @@ class KickerMainWindow(QMainWindow):
         
     def connect_signals(self):
         """Connects all button signals to their functions"""
-        self.stop_btn.clicked.connect(self.stop_processing)
         
         self.ball_only_btn.clicked.connect(lambda: self.set_visualization_mode(1))
         self.field_only_btn.clicked.connect(lambda: self.set_visualization_mode(2))
@@ -953,54 +1104,69 @@ class KickerMainWindow(QMainWindow):
         # Goal limit controls
         self.reset_goal_limit_btn.clicked.connect(self.reset_goal_limit_placeholder)
         
-        # Color picking from video
-        self.video_label.color_picked.connect(self.on_color_picked)
-        
         # Settings tab buttons
         self.apply_settings_btn.clicked.connect(self.apply_settings)
         self.reset_settings_btn.clicked.connect(self.reset_settings)
     
     def poll_results_queue(self):
-        """Polls the results queue for new data from the processing process"""
+        """Polls the results queue for new data from the processing process - optimized version"""
         try:
-            while not self.results_queue.empty():
-                result_package = self.results_queue.get_nowait()
-                
-                # Update current state
-                self.current_display_frame = result_package.get("display_frame")
-                self.current_ball_data = result_package.get("ball_data")
-                self.current_player_data = result_package.get("player_data")
-                self.current_M_field = result_package.get("M_field")
-                
-                # Update score from processing if goals were detected
-                score_data = result_package.get("score")
-                if score_data:
-                    # Update local score if it changed
-                    new_score1 = score_data.get('player1', 0)
-                    new_score2 = score_data.get('player2', 0)
+            # Limit the number of queue items processed per call to prevent GUI freezing
+            max_items_per_call = 3
+            items_processed = 0
+            
+            while not self.results_queue.empty() and items_processed < max_items_per_call:
+                try:
+                    result_package = self.results_queue.get_nowait()
+                    items_processed += 1
                     
-                    if new_score1 != self.player1_goals or new_score2 != self.player2_goals:
-                        self.player1_goals = new_score1
-                        self.player2_goals = new_score2
-                        self.update_score(f"{self.player1_goals}:{self.player2_goals}")
+                    # Update current state
+                    self.current_display_frame = result_package.get("display_frame")
+                    self.current_ball_data = result_package.get("ball_data")
+                    self.current_player_data = result_package.get("player_data")
+                    self.current_M_field = result_package.get("M_field")
+                    
+                    # Update score from processing if goals were detected
+                    score_data = result_package.get("score")
+                    if score_data:
+                        # Update local score if it changed
+                        new_score1 = score_data.get('player1', 0)
+                        new_score2 = score_data.get('player2', 0)
                         
-                        # Log automatic goal detection
-                        if new_score1 > self.player1_goals or new_score2 > self.player2_goals:
-                            self.add_log_message("Goal detected automatically!")
-                
-                # Update FPS data from processing if available
-                fps_data = result_package.get("fps_data")
-                if fps_data:
-                    self.camera_fps = fps_data.get('camera', 0.0)
-                    self.preprocessing_fps = fps_data.get('preprocessing', 0.0)
-                    self.ball_detection_fps = fps_data.get('ball_detection', 0.0)
-                    self.field_detection_fps = fps_data.get('field_detection', 0.0)
-                    self.update_processing_fps()
-                
-                # Update field data
-                self.current_field_data = result_package.get("field_data")
-                
-                # Update the display
+                        if new_score1 != self.player1_goals or new_score2 != self.player2_goals:
+                            self.player1_goals = new_score1
+                            self.player2_goals = new_score2
+                            self.update_score(f"{self.player1_goals}:{self.player2_goals}")
+                            
+                            # Log automatic goal detection
+                            if new_score1 > self.player1_goals or new_score2 > self.player2_goals:
+                                self.add_log_message("Goal detected automatically!")
+                    
+                    # Update FPS data from processing if available (throttled)
+                    fps_data = result_package.get("fps_data")
+                    if fps_data:
+                        current_time = time.time()
+                        if not hasattr(self, '_last_fps_update_time'):
+                            self._last_fps_update_time = 0
+                        
+                        # Only update FPS display every 0.5 seconds to reduce GUI load
+                        if current_time - self._last_fps_update_time > 0.5:
+                            self.camera_fps = fps_data.get('camera', 0.0)
+                            self.preprocessing_fps = fps_data.get('preprocessing', 0.0)
+                            self.ball_detection_fps = fps_data.get('ball_detection', 0.0)
+                            self.field_detection_fps = fps_data.get('field_detection', 0.0)
+                            self.update_processing_fps()
+                            self._last_fps_update_time = current_time
+                    
+                    # Update field data
+                    self.current_field_data = result_package.get("field_data")
+                    
+                except Exception as e:
+                    print(f"Error processing queue item: {e}")
+                    break
+            
+            # Update the display only if we have a frame and processed some data
+            if items_processed > 0 and self.current_display_frame is not None:
                 self.update_display()
                 
                 # Update Display FPS (how fast GUI receives and displays frames)
@@ -1012,9 +1178,9 @@ class KickerMainWindow(QMainWindow):
                     self.display_frame_count = 0
                     self.display_last_fps_time = current_time
                     
-        except:
-            # Queue is empty or other error - ignore
-            pass
+        except Exception as e:
+            print(f"Error in poll_results_queue: {e}")
+            # Don't let queue polling errors crash the GUI
     
     def update_display(self):
         """Updates the video display with the latest frame and visualizations"""
@@ -1114,15 +1280,7 @@ class KickerMainWindow(QMainWindow):
             cv2.drawContours(frame, [field_corners_int], -1, config.COLOR_FIELD_BOUNDS, 1)
     
     # ============= SIGNAL HANDLER METHODS =============
-    
-    @Slot()
-    def stop_processing(self):
-        """Stops the processing by clearing the running event"""
-        self.running_event.clear()
-        self.process_status_label.setText("Process: Stopping...")
-        self.add_log_message("Stopping processing...")
 
-    
     @Slot()
     def set_visualization_mode(self, mode):
         """Sets the visualization mode"""
@@ -1241,20 +1399,35 @@ class KickerMainWindow(QMainWindow):
         self.add_log_message("Goal limit reset to 9")
     
     @Slot(int, int, int)
-    def on_color_picked(self, r, g, b):
-        """Handle color picking from video"""
-        self.add_log_message(f"Color picked: RGB({r}, {g}, {b})")
-        
-        # Also log HSV values for better color analysis
+    def on_calibration_color_picked(self, r, g, b):
+        """Handle color picking from calibration tab video"""       
+        # Calculate and display HSV values
         qcolor = QColor(r, g, b)
         h, s, v = qcolor.hsvHue(), qcolor.hsvSaturation(), qcolor.value()
-        self.add_log_message(f"Color picked: HSV({h}, {s}, {v})")
+        # Handle special case where HSV hue is -1 (grayscale)
+        h_display = h if h != -1 else 0
+        self.hsv_label.setText(f"HSV: ({h_display}, {s}, {v})")
+        self.color_preview.setText("")
+        self.color_preview.setStyleSheet(f"background-color: rgb({r}, {g}, {b});")
+
+        # Calculate HSV range suggestion (±10 for hue, ±30 for saturation, ±30 for value)
+        h_min = max(0, h_display - 10)
+        h_max = min(179, h_display + 10)  # OpenCV uses 0-179 for hue
+        s_min = max(0, s - 30)
+        s_max = min(255, s + 30)
+        v_min = max(0, v - 30)
+        v_max = min(255, v + 30)
         
-        # Also log the hex representation
-        hex_color = f"#{r:02x}{g:02x}{b:02x}"
-        self.add_log_message(f"Color picked: HEX({hex_color})")
+        range_text = f"HSV Range:\nLower: ({h_min}, {s_min}, {v_min})\nUpper: ({h_max}, {s_max}, {v_max})"
+        self.hsv_range_label.setText(range_text)
+        self.hsv_range_label.setStyleSheet("color: #4CAF50;")
         
-        self.add_log_message("Tip: Diese Farbe könnte für die Spielfelderkennung verwendet werden")
+        # Enable the save buttons
+        self.save_field_color_btn.setEnabled(True)
+        self.save_ball_color_btn.setEnabled(True)
+        
+        # Log the color selection
+        self.add_log_message(f"Calibration color selected: RGB({r}, {g}, {b}) HSV({h_display}, {s}, {v})")
     
     @Slot()
     def apply_settings(self):
@@ -1326,20 +1499,75 @@ class KickerMainWindow(QMainWindow):
     
     @Slot(np.ndarray)
     def update_frame(self, frame):
-        """Updates the video display with a new frame"""
-        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        h, w, ch = rgb_frame.shape
-        bytes_per_line = ch * w
-        qt_image = QImage(rgb_frame.data, w, h, bytes_per_line, QImage.Format.Format_RGB888)
-        
-        pixmap = QPixmap.fromImage(qt_image).scaled(
-            self.video_label.size(),
-            Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation
-        )
-        
-        # Store frame data in the clickable video label for color picking
-        self.video_label.set_frame_data(frame, pixmap)
+        """Updates the video display with a new frame - optimized for performance"""
+        try:
+            # Skip update if frame is None or empty
+            if frame is None or frame.size == 0:
+                return
+                
+            # Throttle updates for secondary displays to reduce load
+            current_time = time.time()
+            if not hasattr(self, '_last_secondary_update_time'):
+                self._last_secondary_update_time = 0
+
+            update_secondary = (current_time - self._last_secondary_update_time) > 0.05  # Update secondary displays max 20 FPS
+
+            # Convert to RGB once and reuse
+            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            h, w, ch = rgb_frame.shape
+            bytes_per_line = ch * w
+            
+            # Always update main tracking tab (highest priority)
+            try:
+                # Create contiguous array for main display
+                main_rgb_copy = np.ascontiguousarray(rgb_frame)
+                main_qt_image = QImage(main_rgb_copy.data, w, h, bytes_per_line, QImage.Format.Format_RGB888)
+                main_pixmap = QPixmap.fromImage(main_qt_image).scaled(
+                    self.video_label.size(),
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation
+                )
+                self.video_label.setPixmap(main_pixmap)
+            except Exception as e:
+                print(f"Error updating main video: {e}")
+            
+            # Update secondary displays less frequently to reduce GUI load
+            if update_secondary:
+                # Update settings tab video (if exists and visible)
+                if hasattr(self, 'settings_video_label') and self.settings_video_label.isVisible():
+                    try:
+                        settings_rgb_copy = np.ascontiguousarray(rgb_frame)
+                        settings_qt_image = QImage(settings_rgb_copy.data, w, h, bytes_per_line, QImage.Format.Format_RGB888)
+                        settings_pixmap = QPixmap.fromImage(settings_qt_image).scaled(
+                            self.settings_video_label.size(),
+                            Qt.AspectRatioMode.KeepAspectRatio,
+                            Qt.TransformationMode.SmoothTransformation
+                        )
+                        self.settings_video_label.setPixmap(settings_pixmap)
+                    except Exception as e:
+                        print(f"Error updating settings video: {e}")
+                
+                # Update calibration tab video (if exists and visible)
+                if hasattr(self, 'calibration_video_label') and self.calibration_video_label.isVisible():
+                    try:
+                        calibration_rgb_copy = np.ascontiguousarray(rgb_frame)
+                        calibration_qt_image = QImage(calibration_rgb_copy.data, w, h, bytes_per_line, QImage.Format.Format_RGB888)
+                        calibration_pixmap = QPixmap.fromImage(calibration_qt_image).scaled(
+                            self.calibration_video_label.size(),
+                            Qt.AspectRatioMode.KeepAspectRatio,
+                            Qt.TransformationMode.SmoothTransformation
+                        )
+                        # Pass a copy of the original frame to maintain color picker functionality
+                        frame_copy = np.ascontiguousarray(frame)
+                        self.calibration_video_label.set_frame_data(frame_copy, calibration_pixmap)
+                    except Exception as e:
+                        print(f"Error updating calibration video: {e}")
+                
+                self._last_secondary_update_time = current_time
+                
+        except Exception as e:
+            print(f"Critical error in update_frame: {e}")
+            # Don't let frame update errors crash the GUI
     
     def add_log_message(self, message):
         """Adds a log message"""
@@ -1386,3 +1614,16 @@ class KickerMainWindow(QMainWindow):
         event.accept()
         print("GUI closeEvent abgeschlossen.")
 
+if __name__ == "__main__":
+    # Change to parent directory so imports work correctly
+    import os
+    import sys
+    parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    os.chdir(parent_dir)
+    sys.path.insert(0, parent_dir)
+    
+    import main
+    import multiprocessing as mp
+    
+    mp.set_start_method('spawn', force=True)
+    main.main_gui()
