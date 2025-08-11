@@ -75,15 +75,9 @@ class GPUPreprocessor:
         self.pbo_index = 0
         self.pbo_initialized = False
         
-        # Prepare buffers for reading pixels back from GPU
+        # Prepare buffer for reading pixels back from GPU
         self.output_buffer = (GLubyte * (self.target_width * self.target_height * 3))()
         self.output_frame = np.empty((self.target_height, self.target_width, 3), dtype=np.uint8)
-        
-        # Buffers for intermediate results
-        self.rgb_buffer = (GLubyte * (self.bayer_width * self.bayer_height * 3))()
-        self.rgb_frame = np.empty((self.bayer_height, self.bayer_width, 3), dtype=np.uint8)
-        self.undistorted_buffer = (GLubyte * (self.bayer_width * self.bayer_height * 3))()
-        self.undistorted_frame = np.empty((self.bayer_height, self.bayer_width, 3), dtype=np.uint8)
         
         # Initialization flag
         self.initialized = False
@@ -456,11 +450,7 @@ class GPUPreprocessor:
         Pass 3: RGB Undistorted -> RGB Resized (target size)
         
         :param bayer_frame: NumPy Array (height, width) of the raw Bayer frame.
-        :return: Tuple (final_frame, rgb_frame, undistorted_frame) with all intermediate results
-                 - final_frame: Processed frame at target size (target_height, target_width, 3)
-                 - rgb_frame: Demosaiced RGB at full resolution (bayer_height, bayer_width, 3)  
-                 - undistorted_frame: Undistorted RGB at full resolution (bayer_height, bayer_width, 3)
-                 All frames are in BGR format.
+        :return: Processed NumPy Array (target_height, target_width, 3) in BGR format.
         """
         # Check if we should use CPU fallback
         if self.use_cpu_fallback:
@@ -511,12 +501,6 @@ class GPUPreprocessor:
             # Render to RGB texture
             glBindVertexArray(self.vao)
             glDrawArrays(GL_TRIANGLE_FAN, 0, 4)
-            
-            # Read back RGB intermediate result (Pass 1 output)
-            glReadPixels(0, 0, self.bayer_width, self.bayer_height, GL_BGR, GL_UNSIGNED_BYTE, self.rgb_buffer)
-            buffer_data = np.frombuffer(self.rgb_buffer, dtype=np.uint8)
-            frame_data = buffer_data.reshape((self.bayer_height, self.bayer_width, 3))
-            self.rgb_frame[:] = frame_data
 
             # --- PASS 2: RGB -> RGB UNDISTORTED (SAME SIZE) ---
             
@@ -565,12 +549,6 @@ class GPUPreprocessor:
             # Render to undistorted texture
             glBindVertexArray(self.vao)
             glDrawArrays(GL_TRIANGLE_FAN, 0, 4)
-            
-            # Read back undistorted intermediate result (Pass 2 output)
-            glReadPixels(0, 0, self.bayer_width, self.bayer_height, GL_BGR, GL_UNSIGNED_BYTE, self.undistorted_buffer)
-            buffer_data = np.frombuffer(self.undistorted_buffer, dtype=np.uint8)
-            frame_data = buffer_data.reshape((self.bayer_height, self.bayer_width, 3))
-            self.undistorted_frame[:] = frame_data
 
             # --- PASS 3: RGB UNDISTORTED -> RGB RESIZED ---
             
@@ -648,8 +626,10 @@ class GPUPreprocessor:
                 frame_data = buffer_data.reshape((self.target_height, self.target_width, 3))
                 self.output_frame[:] = frame_data  # No flipud needed - handled in shader
             
-            # Return all intermediate results: (final, rgb_demosaiced, undistorted)
-            return self.output_frame.copy(), self.rgb_frame.copy(), self.undistorted_frame.copy()
+            # The GPU version processes everything in two passes and outputs at target size
+            # To match CPU interface, we return (target_size_frame, target_size_frame)
+            # Note: GPU doesn't generate separate undistorted full-size frame like CPU
+            return self.output_frame, self.output_frame
             
         except Exception as e:
             print(f"GPU multi-pass processing failed, falling back to CPU: {e}")
