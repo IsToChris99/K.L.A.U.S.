@@ -26,6 +26,8 @@ class GoalScorer:
         self.ball_in_goal_start_time = None
         self.ball_missing_counter = 0
         self.last_ball_position = None
+        self.last_ball_velocity = None
+        self.seen_before = False
         
         # Configuration for direction-based goal detection
         self.goal_direction_threshold_distance = GOAL_DIRECTION_THRESHOLD_DISTANCE
@@ -69,6 +71,7 @@ class GoalScorer:
     
     def is_ball_heading_towards_goal(self, ball_position, ball_velocity, goals):
         """Checks if the ball is heading towards any goal based on velocity from Kalman tracker"""
+        print("Checking if ball is heading towards goal...")
         if ball_position is None or ball_velocity is None or not goals:
             return False, None
         
@@ -132,6 +135,8 @@ class GoalScorer:
         
         if ball_position is not None:
             self.last_ball_position = ball_position
+            self.last_ball_velocity = ball_velocity
+            self.seen_before = True
 
             in_goal, goal_type = self.is_ball_in_goal(ball_position, goals)
             
@@ -165,20 +170,20 @@ class GoalScorer:
                 # Ball was in goal and is now missing - GOAL!
                 self._score_goal(self.ball_in_goal_type)
             elif not self.ball_in_goal and not self.goal_scored_recently and self.ball_missing_counter >= self.goal_disappear_frames:
-                # Ball disappeared without being in goal - check if it was heading towards goal
-                # Only check once when missing counter reaches threshold
-                if self.ball_missing_counter == self.goal_disappear_frames:
-                    if ball_velocity is not None and self.last_ball_position is not None:
-                        heading_to_goal, target_goal_type = self.is_ball_heading_towards_goal(
-                            self.last_ball_position, ball_velocity, goals
-                        )
-                        
-                        if heading_to_goal:
-                            # Ball was heading towards goal and disappeared - GOAL!
-                            if self.debug_verbose:
-                                print(f"Ball was heading towards {target_goal_type} goal and disappeared - GOAL!")
-                            self._score_goal(target_goal_type)
-                
+
+                if self.seen_before and self.last_ball_velocity is not None and self.last_ball_position is not None:
+                    heading_to_goal, target_goal_type = self.is_ball_heading_towards_goal(
+                        self.last_ball_position, self.last_ball_velocity, goals
+                    )
+                    print(f"Ball missing for {self.ball_missing_counter} frames, last position: {self.last_ball_position}, velocity: {self.last_ball_velocity}, heading to goal: {heading_to_goal}, target goal: {target_goal_type}")
+
+                    if heading_to_goal:
+                        # Ball was heading towards goal and disappeared - GOAL!
+                        if self.debug_verbose:
+                            print(f"Ball was heading towards {target_goal_type} goal and disappeared - GOAL!")
+                        self._score_goal(target_goal_type)
+                    self.seen_before = False
+
         if self.goal_scored_recently:
             self._check_for_goal_return(ball_position, field_corners, current_time)
     
