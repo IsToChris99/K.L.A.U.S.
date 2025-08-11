@@ -55,8 +55,8 @@ class CombinedTracker:
         self.current_bayer_frame = None  # Store raw Bayer frame from camera thread
         self.ball_result = None
         self.field_data = None
-        self.M_persp = np.identity(3)  # Perspective transform matrix
-        self.M_field = np.identity(3)  # Field transform matrix
+        self.M_persp = None  # Perspective transform matrix
+        self.M_field = None  # Field transform matrix
         
         # Display control variables
         self.frame_count = 0
@@ -78,7 +78,10 @@ class CombinedTracker:
         self.use_gpu_processing = True  # Start with GPU processing by default
         
         # Ball speed calculator
-        self.ball_speed_calculator = BallSpeed(initial_fps=30.0)
+        self.timestamp_ns = 0
+        self.velocity = 0.0
+        self.px_to_cm_ratio = 0
+        #self.ball_speed = BallSpeed()
         
     def frame_reader_thread_method(self):
         """Frame reading thread - only reads raw Bayer frames"""
@@ -103,45 +106,64 @@ class CombinedTracker:
             self.count += 1
             if self.count % 250 == 0:  # Every 250 frames
                 read_duration_avg = (read_duration / self.count) * 1000000  # in µs
-                #print(f"\rRead: {read_duration_avg:.2f} µs", end="")
+                fps = self.count / read_duration if read_duration > 0 else 0
+                #print(f"\rRead: {read_duration_avg:.2f} µs, FPS: {fps:.2f}", end="")
 
             # Bayer frame is now stored and will be processed in main thread
             # No queue operations needed here anymore
         
     def ball_tracking_thread(self):
         """Thread for Ball-Tracking"""
+        count = 0
         while self.running:
+            count += 1
             try:
                 frame = self.frame_queue.get(timeout=1.0)
-                if frame is None: break
-            except Empty: continue
+                if frame is None:
+                    break
+            except Empty:
+                continue
+                
             
+            # Field corners for restricted ball search
             field_corners = None
             goals = []
-            if self.field_data:
-                if self.field_data.get('field_corners') is not None:
+            if self.field_data and self.field_data['calibrated']:
+                if self.field_data['field_corners'] is not None:
                     field_corners = self.field_data['field_corners']
-                if self.field_data.get('goals'):
+                if self.field_data['goals']:
                     goals = self.field_data['goals']
 
-            detection_result = self.ball_tracker.detect_ball(frame, field_corners)
-            self.ball_tracker.update_tracking(detection_result, field_corners)
-            ball_position = detection_result[0] if detection_result[0] is not None else None
-            ball_velocity = None
-            if self.ball_tracker.kalman_tracker.initialized:
-                ball_velocity = self.ball_tracker.kalman_tracker.get_velocity()
-            
-            self.goal_scorer.update_ball_tracking(
-                ball_position, goals, field_corners, 
-                self.ball_tracker.missing_counter, ball_velocity
-            )
-            
-            with self.result_lock:
-                self.ball_result = {
-                    'detection': detection_result,
-                    'smoothed_pts': list(self.ball_tracker.smoothed_pts),
-                    'missing_counter': self.ball_tracker.missing_counter
-                }
+                # Ball detection with field_corners
+                detection_result = self.ball_tracker.detect_ball(frame, field_corners)
+                self.ball_tracker.update_tracking(detection_result, field_corners)
+
+
+                # if count % 8 == 0:  # Every 10 frames
+                #     self.velocity = self.ball_speed.update(detection_result[0], self.timestamp_ns if self.timestamp_ns > 0 else time.perf_counter_ns(), self.px_to_cm_ratio)
+                #print(f"\rBall Velocity: {self.velocity:.2f} cm/s", end="")
+
+                # Goal scoring system update
+                ball_position = detection_result[0] if detection_result[0] is not None else None
+                ball_velocity = None
+                
+                # If no velocity from detection, get it from Kalman tracker
+                if self.ball_tracker.kalman_tracker.initialized:
+                    ball_velocity = self.ball_tracker.kalman_tracker.get_velocity()                
+                self.goal_scorer.update_ball_tracking(
+                    ball_position, 
+                    goals, 
+                    field_corners, 
+                    self.ball_tracker.missing_counter,
+                    ball_velocity
+                )
+                
+                with self.result_lock:
+                    self.ball_result = {
+                        'detection': detection_result,
+                        'smoothed_pts': list(self.ball_tracker.smoothed_pts),
+                        'missing_counter': self.ball_tracker.missing_counter
+                    }
                 
             
     def field_tracking_thread(self):
@@ -149,15 +171,23 @@ class CombinedTracker:
         while self.running:
             try:
                 frame = self.frame_queue.get(timeout=1.0)
-                if frame is None: break
-            except Empty: continue
+                if frame is None:
+                    break
+            except Empty:
+                continue
             
+            # Optimierte Kalibrierung - jetzt schnell genug für jeden Frame
             if self.calibration_mode:
+                before_calibration = time.perf_counter_ns()
                 self.field_detector.calibrate(frame)
+                after_calibration = time.perf_counter_ns()
+                calibration_time = (after_calibration - before_calibration) / 1e9
+                # print(f'\rCalibration attempt took: {calibration_time:.4f} seconds', end='')
             
             self.M_persp = self.field_detector.perspective_transform_matrix
             self.M_field = self.field_detector.field_transform_matrix
 
+            # Store current field data
             with self.result_lock:
                 self.field_data = {
                     'calibrated': self.field_detector.calibrated,
@@ -168,6 +198,15 @@ class CombinedTracker:
                     'perspective_transform_matrix': self.field_detector.perspective_transform_matrix,
                     'field_transform_matrix': self.field_detector.field_transform_matrix
                 }
+
+
+            self.field_width = (self.field_data['field_corners'][1][0] - self.field_data['field_corners'][0][0] 
+                                if self.field_data['field_corners'] is not None and len(self.field_data['field_corners']) >= 2 
+                                and self.field_data['field_corners'][0] is not None 
+                                and self.field_data['field_corners'][1] is not None 
+                                else 0)
+            self.px_to_cm_ratio = self.field_width / 118 if self.field_width != 0 else 0
+            # print(f"Field Width: {self.field_width} px, Pixel to Meter Ratio: {self.px_to_cm_ratio:.4f}")
 
 
     def _transform_points(self, points_array, M):
@@ -384,9 +423,6 @@ class CombinedTracker:
         # Start IDS camera acquisition
         self.camera.start()
         self.start_threads()
-
-        pixel_to_m_ratio = None
-        current_ball_speed = 0.0
         
         try:
             # Enhanced preprocessing time measurement
@@ -441,39 +477,29 @@ class CombinedTracker:
                 # Put processed frame into queue for analysis threads
                 if not self.frame_queue.full():
                     self.frame_queue.put(frame)
-
-                # 1. Cálculo de los FPS de procesamiento en tiempo real.
+                else:
+                    # Remove old frame and add new one
+                    try:
+                        self.frame_queue.get_nowait()
+                    except Empty:
+                        pass
+                    self.frame_queue.put(frame)
+                
                 self.frame_count += 1
                 current_time = time.time()
+                measure_time = time.time()
+                
+                # Calculate processing FPS every second
                 if current_time - self.last_fps_time >= 1.0:
-                    self.processing_fps = self.frame_count / (current_time - self.last_fps_time)
+                    frames_processed = self.frame_count - self.last_frame_count
+                    self.processing_fps = frames_processed / (current_time - self.last_fps_time)
                     self.last_fps_time = current_time
                     self.last_frame_count = self.frame_count
-
-                # 2. Lógica para calcular el ratio de conversión (se ejecuta una vez).
-                if self.field_data and self.field_data.get('field_corners') is not None and pixel_to_m_ratio is None:
-                    corners = self.field_data['field_corners']
-                    if len(corners) == 4:
-                        width1 = np.linalg.norm(corners[0] - corners[1]); width2 = np.linalg.norm(corners[2] - corners[3])
-                        pixel_width = (width1 + width2) / 2
-                        height1 = np.linalg.norm(corners[0] - corners[3]); height2 = np.linalg.norm(corners[1] - corners[2])
-                        pixel_height = (height1 + height2) / 2
-                        ratio_w = config.FIELD_WIDTH_M / pixel_width if pixel_width > 0 else 0
-                        ratio_h = config.FIELD_HEIGHT_M / pixel_height if pixel_height > 0 else 0
-                        pixel_to_m_ratio = (ratio_w + ratio_h) / 2.0
-                        self.ball_speed_calculator.update_parameters(pixel_to_m_ratio=pixel_to_m_ratio)
-                        print(f"\nField corners detected. Pixel-to-m ratio set to: {pixel_to_m_ratio:.4f}")
-
-                # 3. Lógica para calcular la velocidad, actualizando FPS en cada ciclo.
-                if self.processing_fps > 0:
-                    self.ball_speed_calculator.update_parameters(fps=self.processing_fps)
                 
-                ball_pos = self.ball_result['detection'][0] if self.ball_result and self.ball_result.get('detection') and self.ball_result['detection'][0] else None
-                if ball_pos:
-                    current_ball_speed = self.ball_speed_calculator.update(ball_pos)
-                else:
-                    self.ball_speed_calculator.reset()
-                    current_ball_speed = 0.0
+                # Check if we should display this frame (every 8.333 frames for 30 FPS display at 250 FPS processing)
+                should_display = (self.frame_count % 8 == 0)
+                
+                if should_display:
                     # Create display frame only when needed
                     display_frame = frame.copy()
 
@@ -494,15 +520,11 @@ class CombinedTracker:
                     self.goal_scorer.draw_score_info(display_frame)
                     self.draw_status_info(display_frame)
 
-                    cv2.putText(display_frame, f"Processing: {self.processing_fps:.1f} FPS", (10, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
-                    speed_text = f"Speed: {current_ball_speed:.2f} m/s"
-                    cv2.putText(display_frame, speed_text, (10, display_frame.shape[0] - 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
-
                     cv2.imshow("Combined Tracker", display_frame)
                     
                     key = cv2.waitKey(1) & 0xFF
-                # else:
-                #     key = cv2.waitKey(1) & 0xFF if self.frame_count % 50 == 0 else 255
+                else:
+                    key = cv2.waitKey(1) & 0xFF if self.frame_count % 50 == 0 else 255
                 if key == ord('q'):
                     break
                 elif key == ord('1'):
@@ -570,4 +592,3 @@ if __name__ == "__main__":
     # video_path and quse_webcam parameters are kept for compatibility but not used
     tracker = CombinedTracker()
     tracker.run()
-    
