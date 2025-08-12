@@ -235,12 +235,29 @@ class CombinedTracker:
     def draw_player_visualization(self, frame):
         with self.result_lock:
             player_result_copy = self.player_result.copy() if self.player_result else None
-        if player_result_copy is None:
+        
+        if player_result_copy is None or self.M_persp is None:
             return
+            
+        # Transform team1 bounding boxes
         for box in player_result_copy['team1']:
-            cv2.rectangle(frame, (box[0], box[1]), (box[0]+box[2], box[1]+box[3]), (0, 0, 255), 2)
+            x, y, w, h = box
+            # Create corner points of the bounding box
+            corners = np.array([[x, y], [x+w, y], [x+w, y+h], [x, y+h]])
+            # Transform the corners
+            transformed_corners = self._transform_points(corners, self.M_persp)
+            # Draw the transformed bounding box as a polygon
+            cv2.polylines(frame, [transformed_corners], True, (0, 0, 255), 2)
+            
+        # Transform team2 bounding boxes  
         for box in player_result_copy['team2']:
-            cv2.rectangle(frame, (box[0], box[1]), (box[0]+box[2], box[1]+box[3]), (255, 0, 0), 2)
+            x, y, w, h = box
+            # Create corner points of the bounding box
+            corners = np.array([[x, y], [x+w, y], [x+w, y+h], [x, y+h]])
+            # Transform the corners
+            transformed_corners = self._transform_points(corners, self.M_persp)
+            # Draw the transformed bounding box as a polygon
+            cv2.polylines(frame, [transformed_corners], True, (255, 0, 0), 2)
 
 
 

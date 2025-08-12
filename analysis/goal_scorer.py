@@ -74,47 +74,45 @@ class GoalScorer:
         if ball_position is None or ball_velocity is None or not goals:
             return False, None
         
-        ball_x, ball_y = ball_position
-        vel_x, vel_y = ball_velocity
+        ball_position = np.array(ball_position)
+        ball_velocity = np.array(ball_velocity)
         
         # Calculate speed from velocity components
-        speed = np.sqrt(vel_x**2 + vel_y**2)
-        
+        speed = np.linalg.norm(ball_velocity)
+
         # Only consider significant movement (minimum speed threshold)
         if speed < 3.0:  # Minimum speed threshold
             return False, None
         
         # Normalize velocity to get direction
-        dir_x = vel_x / speed
-        dir_y = vel_y / speed
-        
+        dir = ball_velocity / speed
+
         for goal in goals:
             goal_x, goal_y, goal_w, goal_h = goal['bounds']
-            goal_center_x = goal_x + goal_w / 2
-            goal_center_y = goal_y + goal_h / 2
+            goal_pos = np.array([goal_x, goal_y])
+            goal_dim = np.array([goal_w, goal_h])
+
+            goal_center = goal_pos + goal_dim / 2
             
             # Vector from ball to goal center
-            to_goal_x = goal_center_x - ball_x
-            to_goal_y = goal_center_y - ball_y
-            goal_distance = np.sqrt(to_goal_x**2 + to_goal_y**2)
-            
-            # Only consider goals within threshold distance
-            if goal_distance > self.goal_direction_threshold_distance:
-                continue
+            to_goal = goal_center - ball_position
+            goal_distance = np.linalg.norm(to_goal)
+
+            # # Only consider goals within threshold distance
+            # if goal_distance > self.goal_direction_threshold_distance:
+            #     continue
             
             # Normalize vector to goal
-            if goal_distance > 0:
-                to_goal_x /= goal_distance
-                to_goal_y /= goal_distance
-                
-                # Calculate dot product (cosine of angle between direction and goal vector)
-                dot_product = dir_x * to_goal_x + dir_y * to_goal_y
-                
-                # If dot product > 0.5, ball is heading roughly towards goal (angle < 60°)
-                if dot_product > 0.5:
-                    if self.debug_verbose:
-                        print(f"Ball heading towards {goal['type']} goal (dot product: {dot_product:.2f}, distance: {goal_distance:.1f}, speed: {speed:.1f})")
-                    return True, goal['type']
+            normalized_to_goal = to_goal / np.linalg.norm(to_goal) if np.linalg.norm(to_goal) > 0 else to_goal
+
+            # Calculate dot product (cosine of angle between direction and goal vector)
+            dot_product = np.dot(dir, normalized_to_goal)
+            
+            # If dot product > 0.5, ball is heading roughly towards goal (angle < 60°)
+            if dot_product > 0.5:
+                if self.debug_verbose:
+                    print(f"Ball heading towards {goal['type']} goal (dot product: {dot_product:.2f}, distance: {goal_distance:.1f}, speed: {speed:.1f})")
+                return True, goal['type']
         
         return False, None
     
