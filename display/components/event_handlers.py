@@ -34,8 +34,8 @@ class EventHandlers:
         self.main_window.add_log_message(f"Visualization mode set to: {mode_names.get(mode, 'Unknown')}")
     
     @Slot()
-    def reset_score_placeholder(self):
-        """Placeholder für das Zurücksetzen des Punktestands"""
+    def reset_score(self):
+        """Setzt den Punktestand zurück und informiert den Processing-Prozess"""
         # Reset local score
         self.main_window.player1_goals = 0
         self.main_window.player2_goals = 0
@@ -66,70 +66,89 @@ class EventHandlers:
             self.main_window.processing_mode_checkbox.setChecked(not checked)
     
     @Slot()
-    def team1_score_plus_placeholder(self):
-        """Placeholder für Erhöhung des Punktestands von Spieler 1"""
+    def team1_score_plus(self):
+        """Erhöht den Punktestand von Spieler 1"""
+        # Optimistische UI-Aktualisierung
         self.main_window.player1_goals += 1
         self.main_window.update_score(f"{self.main_window.player1_goals}:{self.main_window.player2_goals}")
         self.main_window.add_log_message("Team 1 score +1 (manual)")
+        # An Verarbeitung senden
+        try:
+            self.main_window.command_queue.put({'type': 'update_score', 'index': 0, 'amount': 1})
+        except Exception:
+            pass
 
     @Slot()
-    def team1_score_minus_placeholder(self):
-        """Placeholder für Verringerung des Punktestands von Spieler 1"""
+    def team1_score_minus(self):
+        """Verringert den Punktestand von Spieler 1"""
         if self.main_window.player1_goals > 0:
             self.main_window.player1_goals -= 1
             self.main_window.update_score(f"{self.main_window.player1_goals}:{self.main_window.player2_goals}")
             self.main_window.add_log_message("Team 1 score -1 (manual)")
         else:
             self.main_window.add_log_message("Team 1 score cannot go below 0")
+        # An Verarbeitung senden
+        try:
+            self.main_window.command_queue.put({'type': 'update_score', 'index': 0, 'amount': -1})
+        except Exception:
+            pass
 
     @Slot()
-    def team2_score_plus_placeholder(self):
-        """Placeholder für Erhöhung des Punktestands von Spieler 2"""
+    def team2_score_plus(self):
+        """Erhöht den Punktestand von Spieler 2"""
+        # Optimistische UI-Aktualisierung
         self.main_window.player2_goals += 1
         self.main_window.update_score(f"{self.main_window.player1_goals}:{self.main_window.player2_goals}")
         self.main_window.add_log_message("Team 2 score +1 (manual)")
+        # An Verarbeitung senden
+        try:
+            self.main_window.command_queue.put({'type': 'update_score', 'index': 1, 'amount': 1})
+        except Exception:
+            pass
 
     @Slot()
-    def team2_score_minus_placeholder(self):
-        """Placeholder für Verringerung des Punktestands von Spieler 2"""
+    def team2_score_minus(self):
+        """Verringert den Punktestand von Spieler 2"""
         if self.main_window.player2_goals > 0:
             self.main_window.player2_goals -= 1
             self.main_window.update_score(f"{self.main_window.player1_goals}:{self.main_window.player2_goals}")
             self.main_window.add_log_message("Team 2 score -1 (manual)")
         else:
             self.main_window.add_log_message("Team 2 score cannot go below 0")
-
-    @Slot()
-    def start_match_placeholder(self):
-        """Placeholder für das Starten eines Spiels"""
-        self.main_window.start_match_btn.hide()
-        
-        self.main_window.reset_score_btn.show()
-        self.main_window.cancel_match_btn.show()
-
-        self.main_window.add_log_message("Match started (placeholder)")
-
-    @Slot()
-    def cancel_match_placeholder(self):
-        """Placeholder für das Abbrechen eines Spiels"""
-        self.main_window.reset_score_btn.hide()
-        self.main_window.cancel_match_btn.hide()
-        
-        self.main_window.player1_goals = 0
-        self.main_window.player2_goals = 0
-        
-        self.main_window.update_score("0:0")
-        
-        self.main_window.start_match_btn.show()
-        
-        self.main_window.add_log_message("Match canceled (placeholder)")
+        # An Verarbeitung senden
+        try:
+            self.main_window.command_queue.put({'type': 'update_score', 'index': 1, 'amount': -1})
+        except Exception:
+            pass
         
     @Slot()
-    def reset_goal_limit_placeholder(self):
-        """Placeholder für das Zurücksetzen des Tor-Limits auf den Standardwert"""
-        self.main_window.goal_limit_input.setValue(9)
-        self.main_window.add_log_message("Goal limit reset to 9")
-    
+    def set_goal_limit_default(self):
+        """Setzt das Standard-Torlimit und sendet an die Verarbeitung"""
+        try:
+            self.main_window.goal_limit_input.setValue(10)
+            self.main_window.command_queue.put({'type': 'set_max_goals', 'max_goals': 10, 'is_infinity': False})
+            self.main_window.add_log_message("Goal limit set to 10")
+        except Exception:
+            pass
+
+    @Slot()
+    def set_goal_limit_infinity(self):
+        """Setzt unendliches Torlimit und sendet an die Verarbeitung"""
+        try:
+            self.main_window.command_queue.put({'type': 'set_max_goals', 'max_goals': None, 'is_infinity': True})
+            self.main_window.add_log_message("Goal limit set to Infinity")
+        except Exception:
+            pass
+
+    @Slot(int)
+    def on_goal_limit_changed(self, value):
+        """Wenn der Wert im SpinBox geändert wird, an Verarbeitung senden"""
+        try:
+            self.main_window.command_queue.put({'type': 'set_max_goals', 'max_goals': int(value), 'is_infinity': False})
+            self.main_window.add_log_message(f"Goal limit changed to {int(value)}")
+        except Exception:
+            pass
+            
     @Slot(int, int, int)
     def on_calibration_color_picked(self, r, g, b):
         """Behandelt die Farbauswahl aus dem Kalibrierungs-Tab-Video"""       
@@ -164,16 +183,13 @@ class EventHandlers:
     @Slot()
     def apply_settings(self):
         """Kamera- und Verarbeitungseinstellungen anwenden"""
-        # Collect camera settings
+        # Collect camera settings - corrected attribute names to match UI components
         camera_settings = {
-            'exposure_time': self.main_window.exposure_time_input.value(),
-            'gain': self.main_window.gain_input.value(),
-            'wb_red': self.main_window.wb_red_input.value(),
-            'wb_blue': self.main_window.wb_blue_input.value(),
-            'brightness': self.main_window.brightness_input.value(),
-            'contrast': self.main_window.contrast_input.value(),
-            'gamma': self.main_window.gamma_input.value(),
-            'framerate': self.main_window.framerate_input.value()
+            'framerate': self.main_window.framerate_input.value(),
+            'exposure_time': self.main_window.exposure_time_input.value() / 10.0,  # Convert back from slider value
+            'gain': self.main_window.gain_input.value() / 10.0,  # Convert back from slider value
+            'black_level': self.main_window.black_level_input.value() / 10.0,  # Convert back from slider value
+            'white_balance_auto': self.main_window.wb_auto_checkbox.isChecked()  # Corrected attribute name
         }
         
         # Collect processing settings
@@ -197,24 +213,38 @@ class EventHandlers:
             self.main_window.add_log_message("Settings applied successfully")
             
             # Log the settings for debugging
-            self.main_window.add_log_message(f"Camera: Exposure={camera_settings['exposure_time']}ms, Gain={camera_settings['gain']}dB")
+            self.main_window.add_log_message(f"Camera: Exposure={camera_settings['exposure_time']:.1f}ms, Gain={camera_settings['gain']:.1f}dB")
             self.main_window.add_log_message(f"Processing: Ball Sensitivity={processing_settings['ball_sensitivity']}%")
             
         except Exception as e:
             self.main_window.add_log_message(f"Failed to apply settings: {e}")
     
     @Slot()
+    def white_balance_once(self):
+        """Führt eine einmalige Weißabgleich-Kalibrierung durch"""
+        try:
+            self.main_window.command_queue.put({'type': 'white_balance_once'})
+            self.main_window.add_log_message("White balance calibration triggered")
+        except Exception as e:
+            self.main_window.add_log_message(f"Failed to trigger white balance: {e}")
+    
+    @Slot()
     def reset_settings(self):
         """Alle Einstellungen auf Standardwerte zurücksetzen"""
+        # Reset camera settings to default config values
+        from config import FRAME_RATE_TARGET, EXPOSURE_TIME, GAIN, BLACK_LEVEL, WHITE_BALANCE_AUTO
+        
         # Reset camera settings
-        self.main_window.exposure_time_input.setValue(10.0)
-        self.main_window.gain_input.setValue(1.0)
-        self.main_window.wb_red_input.setValue(1.0)
-        self.main_window.wb_blue_input.setValue(1.0)
-        self.main_window.brightness_input.setValue(0)
-        self.main_window.contrast_input.setValue(1.0)
-        self.main_window.gamma_input.setValue(1.0)
-        self.main_window.framerate_input.setValue(30)
+        self.main_window.framerate_input.setValue(FRAME_RATE_TARGET)
+        self.main_window.exposure_time_input.setValue(int(EXPOSURE_TIME * 10))
+        self.main_window.gain_input.setValue(int(GAIN * 10))
+        self.main_window.black_level_input.setValue(int(BLACK_LEVEL * 10))
+        
+        # Reset white balance
+        if WHITE_BALANCE_AUTO == "Continuous":
+            self.main_window.wb_auto_checkbox.setChecked(True)
+        else:
+            self.main_window.wb_auto_checkbox.setChecked(False)
         
         # Reset processing settings
         self.main_window.ball_sensitivity_input.setValue(50)

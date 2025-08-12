@@ -36,18 +36,15 @@ class FieldWorkerProcess(mp.Process):
 
     def run(self):
         # Late imports safe for spawn
-        from detection.field_detector_markers import FieldDetector
-        import numpy as _np
-        import queue as _queue
 
         shm = shared_memory.SharedMemory(name=self.shm_name)
-        frame = _np.ndarray(self.shape, dtype=_np.dtype(self.dtype), buffer=shm.buf)
+        frame = np.ndarray(self.shape, dtype=np.dtype(self.dtype), buffer=shm.buf)
         self.detector = FieldDetector()
 
         while self.running_event.is_set():
             try:
                 seq = self.tick_queue.get(timeout=0.2)
-            except _queue.Empty:
+            except queue.Empty:
                 continue
 
             # Run calibration/detection on current shared frame
@@ -89,26 +86,24 @@ class BallWorkerProcess(mp.Process):
 
     def run(self):
         # Late imports safe for spawn
-        from detection.ball_detector import BallDetector
-        import numpy as _np
-        import queue as _queue
 
         shm = shared_memory.SharedMemory(name=self.shm_name)
-        frame = _np.ndarray(self.shape, dtype=_np.dtype(self.dtype), buffer=shm.buf)
+        frame = np.ndarray(self.shape, dtype=np.dtype(self.dtype), buffer=shm.buf)
         self.detector = BallDetector()
+        
 
         while self.running_event.is_set():
             # Drain field state queue (keep only latest)
             try:
                 while True:
                     self.latest_field = self.field_state_queue.get_nowait()
-            except _queue.Empty:
+            except queue.Empty:
                 pass
 
             # Wait for tick
             try:
                 seq = self.tick_queue.get(timeout=0.2)
-            except _queue.Empty:
+            except queue.Empty:
                 continue
 
             field_corners = self.latest_field.get('field_corners')
@@ -145,11 +140,12 @@ class ProcessingProcess(mp.Process):
     Ein dedizierter Prozess für die gesamte 250fps-Verarbeitungspipeline.
     Nimmt rohe Frames entgegen und gibt ein komplettes Ergebnispaket aus.
     """
-    def __init__(self, raw_frame_queue, results_queue, command_queue, running_event):
+    def __init__(self, raw_frame_queue, results_queue, command_queue, camera_command_queue, running_event):
         super().__init__()
         self.raw_frame_queue = raw_frame_queue
         self.results_queue = results_queue
         self.command_queue = command_queue
+        self.camera_command_queue = camera_command_queue  # New queue for camera commands
         self.running_event = running_event
 
         # Diese Objekte werden INNERHALB des neuen Prozesses erstellt
@@ -231,8 +227,10 @@ class ProcessingProcess(mp.Process):
                     while not self.command_queue.empty():
                         command = self.command_queue.get_nowait()
                         self.handle_command(command)
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"ERROR: Exception in command handling: {e}")
+                    import traceback
+                    traceback.print_exc()
 
                 # Get next raw frame
                 try:
@@ -247,8 +245,7 @@ class ProcessingProcess(mp.Process):
 
                 # Preprocess frame once in parent process
                 preprocessing_start = time.time()
-                preprocessed_result = self.preprocessor.process_frame(raw_frame)
-                preprocessed_frame = preprocessed_result[0] if isinstance(preprocessed_result, tuple) else preprocessed_result
+                preprocessed_frame, _ = self.preprocessor.process_frame(raw_frame)
                 self.update_fps_tracker('preprocessing', preprocessing_start)
 
                 # Initialize shared memory and workers on first frame
@@ -334,12 +331,20 @@ class ProcessingProcess(mp.Process):
                     )
                     results['score'] = self.goal_scorer.get_score() if hasattr(self.goal_scorer, 'get_score') else {'player1': 0, 'player2': 0}
 
+                # Pull current score to keep UI synced with manual updates
+                current_score = None
+                if hasattr(self.goal_scorer, 'get_score'):
+                    try:
+                        current_score = self.goal_scorer.get_score()
+                    except Exception:
+                        current_score = None
+
                 # Package for UI
                 final_package = {
                     'display_frame': preprocessed_frame,
                     'ball_data': results.get('ball_data'),
                     'player_data': results.get('player_data'),
-                    'score': results.get('score', {'player1': 0, 'player2': 0}),
+                    'score': results.get('score', current_score if current_score is not None else {'player1': 0, 'player2': 0}),
                     'M_field': results.get('M_field', self.latest_M_field),
                     'fps_data': self.current_fps.copy(),
                     'processing_mode': 'GPU' if self.use_gpu_processing else 'CPU',
@@ -392,16 +397,81 @@ class ProcessingProcess(mp.Process):
             tracker['last_time'] = current_time
 
     def handle_command(self, command):
-        """Handle commands from the UI process"""
-        if command.get('type') == 'reset_score':
+        """Handle commands from the UI process"""        
+        if command.get('type') == 'toggle_processing_mode':
+            self.toggle_processing_mode()
+            
+        elif command.get('type') == 'reset_score':
             print("Resetting score...")
             if self.goal_scorer:
                 self.goal_scorer.reset_score()
-        elif command.get('type') == 'toggle_processing_mode':
-            self.toggle_processing_mode()
-        # Field calibration is now automatic - removed manual calibration commands
+        
+        elif command.get('type') == 'update_score':
+            idx = command.get('index')
+            amt = command.get('amount')
+            self.goal_scorer.update_score(idx, amt)
+       
+        elif command.get('type') == 'set_max_goals':
+            max_goals = command.get('max_goals')
+            is_inf = command.get('is_infinity', False)
+            self.goal_scorer.set_max_goals(max_goals, is_inf)
 
-        # Add more command types as needed
+        elif command.get('type') == 'set_infinity_goals':
+            self.goal_scorer.set_max_goals(1, True)
+
+        elif command.get('type') == 'update_settings':
+            # Handle camera settings - forward to camera thread
+            camera_settings = command.get('camera_settings', {})
+            
+            if camera_settings:
+                # Forward camera command to camera thread
+                camera_command = {
+                    'type': 'update_camera_settings',
+                    'settings': camera_settings
+                }
+                try:
+                    self.camera_command_queue.put_nowait(camera_command)
+                except Exception as e:
+                    print(f"ERROR: Failed to forward camera command: {e}")
+            
+            # Handle processing settings
+            processing_settings = command.get('processing_settings', {})
+            if processing_settings:
+                # Update ball detector settings if available
+                if hasattr(self, 'ball_detector') and self.ball_detector:
+                    if 'ball_sensitivity' in processing_settings:
+                        # Convert percentage to threshold (assuming inverse relationship)
+                        threshold = max(1, 101 - processing_settings['ball_sensitivity'])
+                        # Note: This would need to be implemented in BallDetector
+                        # self.ball_detector.set_sensitivity(threshold)
+                    
+                    if 'ball_size_min' in processing_settings:
+                        # self.ball_detector.set_min_size(processing_settings['ball_size_min'])
+                        pass
+                    
+                    if 'ball_size_max' in processing_settings:
+                        # self.ball_detector.set_max_size(processing_settings['ball_size_max'])
+                        pass
+                
+                # Update field detector settings if available
+                if hasattr(self, 'field_detector') and self.field_detector:
+                    if 'field_threshold' in processing_settings:
+                        # self.field_detector.set_threshold(processing_settings['field_threshold'])
+                        pass
+                
+                # Store settings for future reference
+                self.processing_settings = processing_settings
+            
+            print(f"Settings updated - Camera: {camera_settings}, Processing: {processing_settings}")
+
+        elif command.get('type') == 'white_balance_once':
+            try:
+                self.camera_command_queue.put_nowait({
+                    'type': 'white_balance_once'
+                })
+            except Exception as e:
+                print(f"ERROR: Failed to forward white balance command: {e}")
+
 
     def toggle_processing_mode(self):
         """Toggle between CPU and GPU preprocessing"""
@@ -425,7 +495,7 @@ class ProcessingProcess(mp.Process):
 
 # ================== CAMERA THREAD ==================
 
-def camera_thread_func(raw_frame_queue, running_event):
+def camera_thread_func(raw_frame_queue, camera_command_queue, running_event):
     """Synchroner Thread, der Frames von der IDS-Kamera holt."""
     print("Camera-Thread gestartet.")
     camera = None
@@ -435,11 +505,40 @@ def camera_thread_func(raw_frame_queue, running_event):
     camera_last_fps_time = time.time()
     camera_fps = 0.0
     
+    def handle_camera_command(camera, command):
+        """Handle camera-specific commands"""
+        
+        if command.get('type') == 'update_camera_settings':
+            settings = command.get('settings', {})
+            
+            if 'framerate' in settings:
+                camera.set_frame_rate_target(settings['framerate'])
+            if 'exposure_time' in settings:
+                camera.set_exposure(settings['exposure_time'])
+            if 'gain' in settings:
+                camera.set_gain(settings['gain'])
+            if 'black_level' in settings:
+                camera.set_black_level(settings['black_level'])
+            if 'white_balance_auto' in settings:
+                wb_mode = "Continuous" if settings['white_balance_auto'] else "Off"
+                camera.set_white_balance_auto(wb_mode)
+        
+        elif command.get('type') == 'white_balance_once':
+            camera.set_white_balance_auto("Once")
+    
     try:
         camera = IDS_Camera()
         camera.start()  # Startet die synchrone Akquisition
         
         while running_event.is_set():
+            # Process camera commands first
+            try:
+                while not camera_command_queue.empty():
+                    command = camera_command_queue.get_nowait()
+                    handle_camera_command(camera, command)
+            except Exception as e:
+                print(f"ERROR: Exception in camera command handling: {e}")
+            
             try:
                 # Blockierender Aufruf mit Timeout - wartet auf nächsten Frame
                 bayer_frame, metadata = camera.get_frame()
@@ -497,16 +596,18 @@ def main_gui():
     raw_frame_queue = mp.Queue(maxsize=5)
     results_queue = mp.Queue(maxsize=5)
     command_queue = mp.Queue(maxsize=10)  # Für UI-Kommandos
+    camera_command_queue = mp.Queue(maxsize=10)  # Für Kamera-Kommandos
 
     # 2. Erstelle und starte den Verarbeitungs-Prozess
-    processing_process = ProcessingProcess(raw_frame_queue, results_queue, command_queue, running_event)
+    processing_process = ProcessingProcess(raw_frame_queue, results_queue, command_queue, camera_command_queue, running_event)
     processing_process.start()
 
     # 3. Erstelle und starte den Kamera-Thread im Hauptprozess
-    cam_thread = threading.Thread(target=camera_thread_func, args=(raw_frame_queue, running_event), daemon=True)
+    cam_thread = threading.Thread(target=camera_thread_func, args=(raw_frame_queue, camera_command_queue, running_event), daemon=True)
     cam_thread.start()
     
     # 4. Erstelle das Hauptfenster und übergebe die Kommunikationsmittel
+    time.sleep(0.5)  # Kurze Pause, um sicherzustellen, dass der Thread gestartet ist
     window = KickerMainWindow(results_queue, command_queue, running_event)
     window.show()
 

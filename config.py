@@ -1,8 +1,9 @@
 # config.py
 
-# ================== VIDEO & CAMERA SETTINGS ==================
+# ================== VIDEO SETTINGS ==================
 # VIDEO_PATH = "C:\\Users\\Tim\\OneDrive - TH Köln\\03_Hochschule\\6_Semester\\Kicker_Projekt\\Test-Videos\\IDS_Cam2\\08.avi"
-VIDEO_PATH = "C:\\Users\\joshu\\OneDrive - TH Köln\\Kicker (Kicker Klaus) - General\\Kicker_Videos\\2025-08-06\\11.avi"
+#VIDEO_PATH = "C:\\Users\\joshu\\OneDrive - TH Köln\\Kicker (Kicker Klaus) - General\\Kicker_Videos\\2025-08-06\\11.avi"
+VIDEO_PATH = "/Users/romanheck/Desktop/Hochschule/achtes Semester/AKAT/kicker_farbkalibrierung/13.avi"
 IS_LIVE = False
 
 CAM_WIDTH = 1440
@@ -24,6 +25,14 @@ WIDTH_RATIO = DETECTION_WIDTH / REFERENCE_WIDTH
 HEIGHT_RATIO = DETECTION_HEIGHT / REFERENCE_HEIGHT
 
 AREA_RATIO = WIDTH_RATIO * HEIGHT_RATIO
+
+# ================== CAMERA DEFAULT/INITIALIZE SETTINGS ==================
+FRAME_RATE_TARGET = 250.0
+EXPOSURE_TIME = 2000.0
+GAIN = 10.0
+BLACK_LEVEL = 10.0
+WHITE_BALANCE_AUTO = "Off"
+
 
 # ================== CALIBRATION FILES ==================
 CAMERA_CALIBRATION_FILE = "calibration\\calibration_data.json"

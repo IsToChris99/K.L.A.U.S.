@@ -80,7 +80,7 @@ class ScoreSection:
             QPushButton {
                 font-size: 14px;
                 font-weight: bold;
-                color: palette(highlighted-text);
+                color: black;
                 background-color: #f5f5f5;
                 padding: 3px 10px;
                 border: 1px solid #4CAF50;
@@ -163,8 +163,8 @@ class ScoreSection:
         
         # Input field for goal limit
         self.parent_window.goal_limit_input = QSpinBox()
-        self.parent_window.goal_limit_input.setRange(1, 1000)
-        self.parent_window.goal_limit_input.setValue(9)  # Default value
+        self.parent_window.goal_limit_input.setRange(1, 999_999)
+        self.parent_window.goal_limit_input.setValue(10)  # Default value
         self.parent_window.goal_limit_input.setStyleSheet("""
             QGroupBox {
                 font-size: 16px;
@@ -180,10 +180,10 @@ class ScoreSection:
                 padding: 0 0 0 0;
             }
         """)
-        
-        # Reset button
-        self.parent_window.reset_goal_limit_btn = QPushButton("Reset max. Goals")
-        self.parent_window.reset_goal_limit_btn.setStyleSheet("""
+
+        # Default button
+        self.parent_window.default_goal_limit_btn = QPushButton("Default")
+        self.parent_window.default_goal_limit_btn.setStyleSheet("""
             QPushButton {
                 font-size: 14px;
                 padding: 5px 10px;
@@ -201,9 +201,36 @@ class ScoreSection:
             }
         """)
         
+        # Infinity button
+        self.parent_window.infinity_goal_limit_btn = QPushButton("Infinity")
+        self.parent_window.infinity_goal_limit_btn.setStyleSheet("""
+            QPushButton {
+                font-size: 14px;
+                padding: 5px 10px;
+                background-color: #FFA726;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                margin-top: 5px;
+            }
+            QPushButton:hover {
+                background-color: #FF9800;
+            }
+            QPushButton:pressed {
+                background-color: #F57C00;
+            }
+        """)
+        
+        # Group for Two Buttons: "Default" and "Infinity"
+        self.parent_window.goal_limit_buttons = QHBoxLayout()
+        self.parent_window.goal_limit_buttons.addWidget(self.parent_window.default_goal_limit_btn)
+        self.parent_window.goal_limit_buttons.addWidget(self.parent_window.infinity_goal_limit_btn)
+        
+        
+        
         goal_limit_layout.addWidget(limit_label)
         goal_limit_layout.addWidget(self.parent_window.goal_limit_input)
-        goal_limit_layout.addWidget(self.parent_window.reset_goal_limit_btn)
+        goal_limit_layout.addLayout(self.parent_window.goal_limit_buttons)
         goal_limit_layout.addStretch()
         
         return goal_limit_widget
@@ -213,25 +240,6 @@ class ScoreSection:
         match_buttons_widget = QWidget()
         match_buttons_layout = QVBoxLayout(match_buttons_widget)
         match_buttons_layout.setContentsMargins(0, 15, 0, 0)
-        
-        self.parent_window.start_match_btn = QPushButton("Start Match")
-        self.parent_window.start_match_btn.setStyleSheet("""
-            QPushButton {
-                font-size: 15px;
-                padding: 40px 40px;
-                background-color: #4CAF50;
-                color: white;
-                border: none;
-                border-radius: 8px;
-            }
-            QPushButton:hover {
-                background-color: #45a049;
-            }
-            QPushButton:pressed {
-                background-color: #3d8b40;
-            }
-        """)
-        self.parent_window.start_match_btn.setMaximumWidth(200)
         
         self.parent_window.reset_score_btn = QPushButton("Reset Score")
         self.parent_window.reset_score_btn.setStyleSheet("""
@@ -251,31 +259,8 @@ class ScoreSection:
             }
         """)
         self.parent_window.reset_score_btn.setMaximumWidth(200)
-        self.parent_window.reset_score_btn.hide()
         
-        self.parent_window.cancel_match_btn = QPushButton("Cancel Match")
-        self.parent_window.cancel_match_btn.setStyleSheet("""
-            QPushButton {
-                font-size: 14px;
-                padding: 14px 20px;
-                background-color: #FF6B6B;
-                color: white;
-                border: none;
-                border-radius: 8px;
-            }
-            QPushButton:hover {
-                background-color: #FF5252;
-            }
-            QPushButton:pressed {
-                background-color: #E53935;
-            }
-        """)
-        self.parent_window.cancel_match_btn.setMaximumWidth(200)
-        self.parent_window.cancel_match_btn.hide()
-        
-        match_buttons_layout.addWidget(self.parent_window.start_match_btn)
         match_buttons_layout.addWidget(self.parent_window.reset_score_btn)
-        match_buttons_layout.addWidget(self.parent_window.cancel_match_btn)
         match_buttons_layout.addStretch()
         
         return match_buttons_widget

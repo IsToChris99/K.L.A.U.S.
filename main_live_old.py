@@ -8,6 +8,7 @@ from queue import Queue, LifoQueue, Empty
 from detection.ball_detector import BallDetector
 from detection.field_detector_markers import FieldDetector
 from analysis.goal_scorer import GoalScorer
+from detection.player_detector import PlayerDetector
 from input.ids_camera import IDS_Camera
 from processing.cpu_preprocessor import CPUPreprocessor
 from processing.gpu_preprocessor import GPUPreprocessor
@@ -29,6 +30,10 @@ class CombinedTracker:
         self.ball_tracker = BallDetector()
         self.field_detector = FieldDetector()
         self.goal_scorer = GoalScorer()
+        self.player_detector = PlayerDetector()
+
+        self.player_result = None
+        self.player_thread = None
         
         # Calibration mode - only activate on key press
         self.calibration_mode = True
@@ -209,6 +214,36 @@ class CombinedTracker:
             # print(f"Field Width: {self.field_width} px, Pixel to Meter Ratio: {self.px_to_cm_ratio:.4f}")
 
 
+    def player_tracking_thread(self):
+        """Thread for Player Detection"""
+        while self.running:
+            try:
+                frame = self.frame_queue.get(timeout=1.0)
+                if frame is None:
+                    break
+            except Empty:
+                continue
+
+            boxes_t1, boxes_t2 = self.player_detector.detect_players(frame)
+            with self.result_lock:
+                self.player_result = {
+                    'team1': boxes_t1,
+                    'team2': boxes_t2
+                }
+
+
+    def draw_player_visualization(self, frame):
+        with self.result_lock:
+            player_result_copy = self.player_result.copy() if self.player_result else None
+        if player_result_copy is None:
+            return
+        for box in player_result_copy['team1']:
+            cv2.rectangle(frame, (box[0], box[1]), (box[0]+box[2], box[1]+box[3]), (0, 0, 255), 2)
+        for box in player_result_copy['team2']:
+            cv2.rectangle(frame, (box[0], box[1]), (box[0]+box[2], box[1]+box[3]), (255, 0, 0), 2)
+
+
+
     def _transform_points(self, points_array, M):
         if points_array.size == 0:
             return np.array([], dtype=np.int32).reshape(0, 2)
@@ -360,6 +395,10 @@ class CombinedTracker:
             self.field_thread = Thread(target=self.field_tracking_thread, daemon=True)
             self.field_thread.start()
 
+        if self.visualization_mode in [self.COMBINED]: 
+            self.player_thread = Thread(target=self.player_tracking_thread, daemon=True)
+            self.player_thread.start()
+
     def stop_threads(self):
         """Stops the tracking threads"""
         self.running = False
@@ -379,6 +418,9 @@ class CombinedTracker:
             
         if self.field_thread and self.field_thread.is_alive():
             self.field_thread.join(timeout=1.0)
+
+        if self.player_thread and self.player_thread.is_alive():
+            self.player_thread.join(timeout=1.0)
     
     def toggle_processing_mode(self):
         """Toggles between CPU and GPU processing"""
@@ -516,6 +558,9 @@ class CombinedTracker:
                         
                     if self.visualization_mode in [self.FIELD_ONLY, self.COMBINED]:
                        self.draw_field_visualization(display_frame)
+
+                    if self.visualization_mode in [self.COMBINED]:
+                        self.draw_player_visualization(display_frame)
                     
                     self.goal_scorer.draw_score_info(display_frame)
                     self.draw_status_info(display_frame)
