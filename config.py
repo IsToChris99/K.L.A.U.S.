@@ -51,17 +51,6 @@ BALL_UPPER = (40, 255, 255)
 # BALL_UPPER_ALT = (40, 255, 255)
 
 # ================== FIELD DETECTION (HSV VALUES) ==================
-# # Green field - main color - Live Color
-# FIELD_GREEN_LOWER = (100, 110, 20)
-# FIELD_GREEN_UPPER = (110, 120, 80)
-
-# # Green field - alternative values - Live Color
-# FIELD_GREEN_LOWER_ALT = (100, 110, 60)
-# FIELD_GREEN_UPPER_ALT = (115, 130, 100)
-
-# # Farbeinstellungen für grünes Spielfeld (HSV)
-FIELD_GREEN_LOWER = (20, 30, 30)
-FIELD_GREEN_UPPER = (100, 255, 100)
 
 # # Farbeinstellungen für grünes Spielfeld (HSV)
 # FIELD_MARKER_LOWER = ((149/2 - 10), (0.4624*255 - 30), (0.3647*255 - 30))
@@ -73,11 +62,7 @@ FIELD_GREEN_UPPER = (100, 255, 100)
 
 # Farbeinstellungen für grünes Spielfeld (HSV)
 FIELD_MARKER_LOWER = (55, 80, 30)
-FIELD_MARKER_UPPER = (70, 255, 255)
-
-# Alternative Farbwerte für verschiedene Beleuchtungen
-FIELD_MARKER_LOWER_ALT = (55, 100, 40)
-FIELD_MARKER_UPPER_ALT = (80, 255, 255)
+FIELD_MARKER_UPPER = (80, 255, 255)
 
 # Goals (bright/white areas) - unused at the moment
 GOAL_LOWER = (0, 0, 70)
