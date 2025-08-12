@@ -2,7 +2,8 @@
 
 # ================== VIDEO SETTINGS ==================
 # VIDEO_PATH = "C:\\Users\\Tim\\OneDrive - TH Köln\\03_Hochschule\\6_Semester\\Kicker_Projekt\\Test-Videos\\IDS_Cam2\\08.avi"
-VIDEO_PATH = "C:\\Users\\joshu\\OneDrive - TH Köln\\Kicker (Kicker Klaus) - General\\Kicker_Videos\\2025-08-06\\11.avi"
+#VIDEO_PATH = "C:\\Users\\joshu\\OneDrive - TH Köln\\Kicker (Kicker Klaus) - General\\Kicker_Videos\\2025-08-06\\11.avi"
+VIDEO_PATH = "/Users/romanheck/Desktop/Hochschule/achtes Semester/AKAT/kicker_farbkalibrierung/13.avi"
 IS_LIVE = False
 
 CAM_WIDTH = 1440
