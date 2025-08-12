@@ -412,6 +412,11 @@ class ProcessingProcess(mp.Process):
                 if hasattr(self.goal_scorer, 'get_score'):
                     try:
                         current_score = self.goal_scorer.get_score()
+                        goal_infos = {
+                            'player1': current_score.get('player1', 0),
+                            'player2': current_score.get('player2', 0)
+                        }
+                        max_goals = current_score.get('max_goals', 1)
                     except Exception:
                         current_score = None
 
@@ -420,8 +425,8 @@ class ProcessingProcess(mp.Process):
                     'display_frame': preprocessed_frame,
                     'ball_data': results.get('ball_data'),
                     'player_data': results.get('player_data'),
-                    'score': results.get('score', current_score if current_score is not None else {'player1': 0, 'player2': 0}),
-                    'max_goals': self.goal_scorer.get_score()['max_goals'],
+                    'score': goal_infos if current_score else {'player1': 0, 'player2': 0},
+                    'max_goals': max_goals if current_score else 1,
                     'M_field': results.get('M_field', self.latest_M_field),
                     'fps_data': self.current_fps.copy(),
                     'processing_mode': 'GPU' if self.use_gpu_processing else 'CPU',
