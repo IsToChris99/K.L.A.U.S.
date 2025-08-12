@@ -17,10 +17,11 @@ class EventHandlers:
     def set_visualization_mode(self, mode):
         """Setzt den Visualisierungsmodus"""
         self.main_window.visualization_mode = mode
-        mode_names = {1: "Ball", 2: "Field", 3: "Combined"}
+        mode_names = {1: "Ball", 2: "Field", 3: "Player", 4: "Combined"}
         
         # Reset button highlighting
-        for btn in [self.main_window.ball_only_btn, self.main_window.field_only_btn, self.main_window.combined_btn]:
+        for btn in [self.main_window.ball_only_btn, self.main_window.field_only_btn, 
+                   self.main_window.player_only_btn, self.main_window.combined_btn]:
             btn.setStyleSheet("")
         
         # Highlight active button
@@ -29,6 +30,8 @@ class EventHandlers:
         elif mode == 2:
             self.main_window.field_only_btn.setStyleSheet("background-color: lightgreen;")
         elif mode == 3:
+            self.main_window.player_only_btn.setStyleSheet("background-color: lightgreen;")
+        elif mode == 4:
             self.main_window.combined_btn.setStyleSheet("background-color: lightgreen;")
 
         self.main_window.add_log_message(f"Visualization mode set to: {mode_names.get(mode, 'Unknown')}")
@@ -256,3 +259,48 @@ class EventHandlers:
         self.main_window.processing_resolution_input.setCurrentIndex(1)
         
         self.main_window.add_log_message("Settings reset to defaults")
+    
+    @Slot()
+    def toggle_detections(self):
+        """Schaltet die Anzeige der Detections ein/aus"""
+        # Toggle the visualization engine's detection display
+        show_detections = self.main_window.visualization_engine.toggle_detections()
+        
+        # Update button text and style based on current state
+        if show_detections:
+            self.main_window.toggle_detections_btn.setText("Hide Detections")
+            self.main_window.toggle_detections_btn.setStyleSheet("""
+                QPushButton {
+                    font-size: 12px;
+                    padding: 8px 12px;
+                    background-color: #FF5722;
+                    color: white;
+                    border: none;
+                    border-radius: 4px;
+                    margin-top: 10px;
+                }
+                QPushButton:hover {
+                    background-color: #E64A19;
+                }
+                QPushButton:pressed {
+                    background-color: #D84315;
+                }
+            """)
+            self.main_window.add_log_message("Detections enabled")
+        else:
+            self.main_window.toggle_detections_btn.setText("Show Detections")
+            self.main_window.toggle_detections_btn.setStyleSheet("""
+                QPushButton {
+                    padding: 8px 12px;
+                    background-color: #58ad57;
+                    color: white;
+                    margin-top: 10px;
+                }
+                QPushButton:hover {
+                    background-color: #45A049;
+                }
+                QPushButton:pressed {
+                    background-color: #3d8b40;
+                }
+            """)
+            self.main_window.add_log_message("Detections disabled")

@@ -299,17 +299,59 @@ class ControlSection:
     def create_visualization_controls(self):
         """Erstellt die Visualisierungs-Buttons"""
         viz_group = QGroupBox("Display Mode")
-        viz_layout = QVBoxLayout(viz_group)
+        viz_layout = QHBoxLayout(viz_group)  # Changed to horizontal layout
+        
+        # Left side: Display mode buttons (2/3 of space)
+        mode_buttons_widget = QWidget()
+        mode_buttons_layout = QVBoxLayout(mode_buttons_widget)
+        mode_buttons_layout.setContentsMargins(0, 0, 0, 0)
         
         self.parent_window.ball_only_btn = QPushButton("Ball Only")
         self.parent_window.field_only_btn = QPushButton("Field Only")
+        self.parent_window.player_only_btn = QPushButton("Player Only")
+
+        mode_buttons_layout.addWidget(self.parent_window.ball_only_btn)
+        mode_buttons_layout.addWidget(self.parent_window.field_only_btn)
+        mode_buttons_layout.addWidget(self.parent_window.player_only_btn)
+        
+        # Right side: Combined button and Toggle detections button (1/3 of space)
+        right_widget = QWidget()
+        right_layout = QVBoxLayout(right_widget)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        
         self.parent_window.combined_btn = QPushButton("Combined")
+        self.parent_window.combined_btn.setStyleSheet("""
+            QPushButton {
+                padding: 8px 12px;
+                background-color: lightgreen;
+                color: white;
+                margin-top: 10px;
+            }
+        """)
         
-        self.parent_window.combined_btn.setStyleSheet("background-color: lightgreen;")
+        self.parent_window.toggle_detections_btn = QPushButton("Hide Detections")
+        self.parent_window.toggle_detections_btn.setStyleSheet("""
+            QPushButton {
+                padding: 8px 12px;
+                background-color: #FF5722;
+                color: white;
+                margin-top: 10px;
+            }
+            QPushButton:hover {
+                background-color: #E64A19;
+            }
+            QPushButton:pressed {
+                background-color: #D84315;
+            }
+        """)
         
-        viz_layout.addWidget(self.parent_window.ball_only_btn)
-        viz_layout.addWidget(self.parent_window.field_only_btn)
-        viz_layout.addWidget(self.parent_window.combined_btn)
+        right_layout.addWidget(self.parent_window.combined_btn)
+        right_layout.addWidget(self.parent_window.toggle_detections_btn)
+        right_layout.addStretch()  # Add stretch to push buttons to top
+        
+        # Add widgets to main layout with 2:1 ratio
+        viz_layout.addWidget(mode_buttons_widget, 2)  # 2/3 of space
+        viz_layout.addWidget(right_widget, 1)         # 1/3 of space
         
         return viz_group
     
@@ -349,6 +391,7 @@ class ControlSection:
         self.parent_window.preprocessing_fps_label = QLabel("Preprocessing: 0.0 FPS")
         self.parent_window.ball_detection_fps_label = QLabel("Ball Detection: 0.0 FPS")
         self.parent_window.field_detection_fps_label = QLabel("Field Detection: 0.0 FPS")
+        self.parent_window.player_detection_fps_label = QLabel("Player Detection: 0.0 FPS")
         self.parent_window.display_fps_label = QLabel("Display: 0.0 FPS")
         
         # Style the FPS labels
@@ -357,6 +400,7 @@ class ControlSection:
         self.parent_window.preprocessing_fps_label.setStyleSheet(fps_style)
         self.parent_window.ball_detection_fps_label.setStyleSheet(fps_style)
         self.parent_window.field_detection_fps_label.setStyleSheet(fps_style)
+        self.parent_window.player_detection_fps_label.setStyleSheet(fps_style)
         self.parent_window.display_fps_label.setStyleSheet(fps_style)
         
         status_layout.addWidget(self.parent_window.process_status_label)
@@ -364,6 +408,7 @@ class ControlSection:
         status_layout.addWidget(self.parent_window.preprocessing_fps_label)
         status_layout.addWidget(self.parent_window.ball_detection_fps_label)
         status_layout.addWidget(self.parent_window.field_detection_fps_label)
+        status_layout.addWidget(self.parent_window.player_detection_fps_label)
         status_layout.addWidget(self.parent_window.display_fps_label)
         
         return status_group

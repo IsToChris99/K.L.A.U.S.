@@ -52,12 +52,14 @@ class KickerMainWindow(QMainWindow):
         self.current_display_frame = None
         self.current_ball_data = None
         self.current_player_data = None
+        self.current_player_data = None
         self.current_M_field = None
         
         # Visualization modes
         self.BALL_ONLY = 1
         self.FIELD_ONLY = 2  
-        self.COMBINED = 3
+        self.PLAYER_ONLY = 3
+        self.COMBINED = 4
         self.visualization_mode = self.COMBINED
         
         # Statistics and scoring
@@ -126,7 +128,9 @@ class KickerMainWindow(QMainWindow):
         # Visualization controls
         self.ball_only_btn.clicked.connect(lambda: self.event_handlers.set_visualization_mode(1))
         self.field_only_btn.clicked.connect(lambda: self.event_handlers.set_visualization_mode(2))
-        self.combined_btn.clicked.connect(lambda: self.event_handlers.set_visualization_mode(3))
+        self.player_only_btn.clicked.connect(lambda: self.event_handlers.set_visualization_mode(3))
+        self.combined_btn.clicked.connect(lambda: self.event_handlers.set_visualization_mode(4))
+        self.toggle_detections_btn.clicked.connect(self.event_handlers.toggle_detections)
 
         # Score controls
         self.reset_score_btn.clicked.connect(self.event_handlers.reset_score)
@@ -199,11 +203,15 @@ class KickerMainWindow(QMainWindow):
                             self.preprocessing_fps = fps_data.get('preprocessing', 0.0)
                             self.ball_detection_fps = fps_data.get('ball_detection', 0.0)
                             self.field_detection_fps = fps_data.get('field_detection', 0.0)
+                            self.player_detection_fps = fps_data.get('player_detection', 0.0)
                             self.update_processing_fps()
                             self._last_fps_update_time = current_time
                     
                     # Update field data
                     self.current_field_data = result_package.get("field_data")
+                    
+                    # Update player data
+                    self.current_player_data = result_package.get("player_data")
                     
                 except Exception as e:
                     print(f"Error processing queue item: {e}")
@@ -235,7 +243,8 @@ class KickerMainWindow(QMainWindow):
             self.current_display_frame,
             self.visualization_mode,
             self.current_ball_data,
-            getattr(self, 'current_field_data', None)
+            getattr(self, 'current_field_data', None),
+            getattr(self, 'current_player_data', None)
         )
         
         # Convert frame to Qt format and display
@@ -327,6 +336,7 @@ class KickerMainWindow(QMainWindow):
         self.preprocessing_fps_label.setText(f"Preprocessing: {self.preprocessing_fps:.1f} FPS")
         self.ball_detection_fps_label.setText(f"Ball Detection: {self.ball_detection_fps:.1f} FPS")
         self.field_detection_fps_label.setText(f"Field Detection: {self.field_detection_fps:.1f} FPS")
+        self.player_detection_fps_label.setText(f"Player Detection: {self.player_detection_fps:.1f} FPS")
     
     def update_display_fps(self, fps):
         """Aktualisiert die Display-FPS"""
