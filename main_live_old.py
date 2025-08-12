@@ -393,7 +393,7 @@ class CombinedTracker:
                    (10, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
         
         # Show key commands
-        cv2.putText(frame, "Keys: 1=Ball, 2=Field, 3=Both, r=Calibration, s=Screenshot, g=Reset Score, x=Reload GPU, c=Toggle CPU/GPU, h=Help", 
+        cv2.putText(frame, "Keys: 1=Ball, 2=Field, 3=Both, r=Calibration, s=Screenshot, g=Reset Score, r=Reset Field Calibration, x=Reload GPU, c=Toggle CPU/GPU, h=Help", 
                    (10, frame.shape[0] - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1)
     
     def start_threads(self):
@@ -465,6 +465,7 @@ class CombinedTracker:
         print("  '3' - Show combined view")
         print("  's' - Save screenshot (with ball curve if available)")
         print("  'g' - Reset score to 0-0")
+        print("  'r' - Reset field calibration")
         print("  'x' - Force GPU shader reload")
         print("  'c' - Toggle CPU/GPU processing")
         print("  'h' - Show help")
@@ -628,6 +629,12 @@ class CombinedTracker:
                     # Reset score
                     self.goal_scorer.reset_score()
                     print("Score reset!")
+                    
+                elif key == ord('r'):
+                    # Reset field calibration
+                    print("Resetting field calibration...")
+                    self.field_detector.reset_calibration()
+                    print("Field detector calibration has been reset successfully")
 
                 elif key == ord('x'):
                     print("Forcing GPU preprocessor reinitialization...")

@@ -357,7 +357,7 @@ class CombinedTracker:
                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 165, 0), 2)
         
         # Show key commands
-        cv2.putText(frame, "Keys: 1=Ball, 2=Field, 3=Both, s=Screenshot, g=Reset Score, h=Help", 
+        cv2.putText(frame, "Keys: 1=Ball, 2=Field, 3=Both, s=Screenshot, g=Reset Score, r=Reset Field Calibration, h=Help", 
                    (10, frame.shape[0] - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1)
     
     def start_threads(self):
@@ -412,6 +412,8 @@ class CombinedTracker:
         print("  '2' - Show only field tracking")
         print("  '3' - Combined view (default)")
         print("  's' - Save screenshot (with ball curve if available)")
+        print("  'g' - Reset score to 0-0")
+        print("  'r' - Reset field calibration")
         print("  'c' - Show camera calibration info")
         print("  'h' - Show help")
         print("  Note: Field calibration runs automatically")
@@ -507,6 +509,7 @@ class CombinedTracker:
                     print("  's' - Save screenshot (with ball curve if available)")
                     print("  'c' - Show camera calibration info")
                     print("  'g' - Reset score to 0-0")
+                    print("  'r' - Reset field calibration")
                     print("  'h' - Show help")
                     print("  Note: Field calibration runs automatically")
                     print("=" * 60)
@@ -517,6 +520,12 @@ class CombinedTracker:
                     print("Score reset!")
 
                 #print(f"\r{(time.time() - measure_time) * 1000000}", end="")
+                
+                elif key == ord('r'):
+                    # Reset field calibration
+                    print("Resetting field calibration...")
+                    self.field_detector.reset_calibration()
+                    print("Field detector calibration has been reset successfully")
 
         finally:
             # Cleanup

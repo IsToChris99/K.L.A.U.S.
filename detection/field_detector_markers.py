@@ -51,6 +51,28 @@ class FieldDetector:
 
         self.counter = 0
 
+    def reset_calibration(self):
+        """Resets the field detector to initial state"""
+        # Field properties zurücksetzen
+        self.field_contour = None
+        self.field_corners = None
+        self.goals = []
+        self.field_transform_matrix = None
+        self.perspective_transform_matrix = None
+        self.calibrated = False
+        
+        # Queue und EMA-Daten zurücksetzen
+        self.corner_queue.clear()
+        self.previous_ema_corners = None
+        
+        # Marker Mask zurücksetzen
+        self.marker_mask = None
+        
+        # Counter zurücksetzen
+        self.counter = 0
+        
+        print("Field detector calibration reset successfully")
+
     def detect_field(self, frame):
         """Detects field and returns contours"""
 
