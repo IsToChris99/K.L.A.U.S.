@@ -71,7 +71,6 @@ class GoalScorer:
     
     def is_ball_heading_towards_goal(self, ball_position, ball_velocity, goals):
         """Checks if the ball is heading towards any goal based on velocity from Kalman tracker"""
-        print("Checking if ball is heading towards goal...")
         if ball_position is None or ball_velocity is None or not goals:
             return False, None
         
@@ -175,14 +174,15 @@ class GoalScorer:
                     heading_to_goal, target_goal_type = self.is_ball_heading_towards_goal(
                         self.last_ball_position, self.last_ball_velocity, goals
                     )
-                    print(f"Ball missing for {self.ball_missing_counter} frames, last position: {self.last_ball_position}, velocity: {self.last_ball_velocity}, heading to goal: {heading_to_goal}, target goal: {target_goal_type}")
 
                     if heading_to_goal:
                         # Ball was heading towards goal and disappeared - GOAL!
                         if self.debug_verbose:
                             print(f"Ball was heading towards {target_goal_type} goal and disappeared - GOAL!")
                         self._score_goal(target_goal_type)
-                    self.seen_before = False
+                    else:
+                        # Reset tracking data if ball wasn't heading to goal and disappeared
+                        self.seen_before = False
 
         if self.goal_scored_recently:
             self._check_for_goal_return(ball_position, field_corners, current_time)
@@ -223,13 +223,22 @@ class GoalScorer:
             self.goal_scored_time = time.time()
             self.goal_scored_type = goal_type
             
+            # Reset all ball tracking data to prevent duplicate goals
             self._reset_goal_tracking()
+            self._reset_ball_tracking()
     
     def _reset_goal_tracking(self):
         """Resets goal tracking"""
         self.ball_in_goal = False
         self.ball_in_goal_type = None
         self.ball_in_goal_start_time = None
+    
+    def _reset_ball_tracking(self):
+        """Resets ball tracking data to prevent duplicate goal detection"""
+        self.last_ball_position = None
+        self.last_ball_velocity = None
+        self.seen_before = False
+        self.ball_missing_counter = 0
     
     def _check_for_goal_return(self, ball_position, field_corners, current_time):
         """Checks if the ball returns to the playing field after a goal"""
@@ -268,6 +277,7 @@ class GoalScorer:
         self.player1_goals = 0
         self.player2_goals = 0
         self._reset_goal_tracking()
+        self._reset_ball_tracking()
         self.goal_scored_recently = False
         print("Score reset to 0-0")
     
