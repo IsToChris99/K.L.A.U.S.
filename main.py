@@ -68,7 +68,6 @@ class FieldWorkerProcess(mp.Process):
 
         shm.close()
 
-
 class BallWorkerProcess(mp.Process):
     """Own process for ball detection working on a shared memory frame and optional field state."""
     def __init__(self, shm_name, shape, dtype, tick_queue, field_state_queue, result_queue, running_event):
@@ -422,6 +421,7 @@ class ProcessingProcess(mp.Process):
                     'ball_data': results.get('ball_data'),
                     'player_data': results.get('player_data'),
                     'score': results.get('score', current_score if current_score is not None else {'player1': 0, 'player2': 0}),
+                    'max_goals': self.goal_scorer.get_score()['max_goals'],
                     'M_field': results.get('M_field', self.latest_M_field),
                     'fps_data': self.current_fps.copy(),
                     'processing_mode': 'GPU' if self.use_gpu_processing else 'CPU',
@@ -582,7 +582,7 @@ def camera_thread_func(raw_frame_queue, camera_command_queue, running_event):
     camera_last_fps_time = time.time()
     camera_fps = 0.0
     
-    def handle_camera_command(camera, command):
+    def _handle_camera_command(camera, command):
         """Handle camera-specific commands"""
         
         if command.get('type') == 'update_camera_settings':
@@ -612,7 +612,7 @@ def camera_thread_func(raw_frame_queue, camera_command_queue, running_event):
             try:
                 while not camera_command_queue.empty():
                     command = camera_command_queue.get_nowait()
-                    handle_camera_command(camera, command)
+                    _handle_camera_command(camera, command)
             except Exception as e:
                 print(f"ERROR: Exception in camera command handling: {e}")
             

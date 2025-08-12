@@ -2,16 +2,15 @@
 Tab Widgets für die Hauptanwendung
 """
 
-from PySide6.QtCore import Qt, Slot
-from PySide6.QtGui import QColor
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, 
     QPushButton, QLabel, QFormLayout, QSpinBox, 
-    QDoubleSpinBox, QSlider, QComboBox, QCheckBox
+    QSlider, QComboBox, QCheckBox
 )
 
 from .clickable_video_label import ClickableVideoLabel
-from config import (FRAME_RATE_TARGET, EXPOSURE_TIME, GAIN, BLACK_LEVEL, WHITE_BALANCE_AUTO)
+from config import FRAME_RATE_TARGET, EXPOSURE_TIME, GAIN, BLACK_LEVEL, WHITE_BALANCE_AUTO
 
 
 class TrackingTab(QWidget):

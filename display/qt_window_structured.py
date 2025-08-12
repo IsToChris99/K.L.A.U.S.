@@ -1,27 +1,12 @@
-"""
-Überarbeitete Hauptfenster-Klasse mit strukturiertem Design
-"""
-
 import cv2
 import numpy as np
 import time
-import sys
-import os
 
-# Add parent directory to path to find config
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import config
+from PySide6.QtCore import Qt, Slot, QTimer
+from PySide6.QtGui import QImage, QPixmap
+from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QTabWidget
 
-from PySide6.QtCore import Qt, QThread, Signal, Slot, QTimer
-from PySide6.QtGui import QImage, QPixmap, QColor, QMouseEvent
-from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QLabel, QPushButton,
-    QVBoxLayout, QHBoxLayout, QTextEdit, QSizePolicy,
-    QGroupBox, QCheckBox, QComboBox, QTabWidget, QLineEdit,
-    QFormLayout, QSpinBox, QDoubleSpinBox, QSlider
-)
-
-# Import neue Komponenten
+# Import own ui components
 from .components.tab_widgets import TrackingTab, CalibrationTab, SettingsTab, AboutTab
 from .components.ui_components import ScoreSection, ControlSection, VideoSection
 from .components.visualization_engine import VisualizationEngine
@@ -65,6 +50,7 @@ class KickerMainWindow(QMainWindow):
         # Statistics and scoring
         self.player1_goals = 0
         self.player2_goals = 0
+        self.current_max_goals = 10  # Default value, will be updated from main process
         
         # FPS tracking for different components
         self.display_frame_count = 0
@@ -161,14 +147,15 @@ class KickerMainWindow(QMainWindow):
         if hasattr(self, 'processing_mode_checkbox'):
             self.processing_mode_checkbox.toggled.connect(self.event_handlers.toggle_processing_mode)
       
-            
     def poll_results_queue(self):
         """Pollt die Ergebnis-Queue für neue Daten aus dem Verarbeitungsprozess - optimierte Version"""
         try:
             # Begrenze die Anzahl der verarbeiteten Queue-Elemente pro Aufruf
             max_items_per_call = 3
             items_processed = 0
-            
+
+            vorher = time.perf_counter_ns()
+
             while not self.results_queue.empty() and items_processed < max_items_per_call:
                 try:
                     result_package = self.results_queue.get_nowait()
@@ -191,6 +178,14 @@ class KickerMainWindow(QMainWindow):
                             self.player2_goals = new_score2
                             self.update_score(f"{self.player1_goals}:{self.player2_goals}")
                     
+                    # Update max_goals from processing
+                    max_goals_data = result_package.get("max_goals")
+                    if max_goals_data is not None and max_goals_data != self.current_max_goals:
+                        self.current_max_goals = max_goals_data
+                        # Update UI to reflect the new max_goals if needed
+                        if hasattr(self, 'goal_limit_input') and self.goal_limit_input.value() != max_goals_data:
+                            self.goal_limit_input.setValue(max_goals_data)
+
                     # Update FPS data from processing if available (throttled)
                     fps_data = result_package.get("fps_data")
                     if fps_data:
@@ -212,7 +207,9 @@ class KickerMainWindow(QMainWindow):
                     
                     # Update player data
                     self.current_player_data = result_package.get("player_data")
-                    
+
+                    print(f"\rProcessed in {(time.perf_counter_ns() - vorher) / 1000000} ms", end="")
+
                 except Exception as e:
                     print(f"Error processing queue item: {e}")
                     break
@@ -275,11 +272,11 @@ class KickerMainWindow(QMainWindow):
             try:
                 main_rgb_copy = np.ascontiguousarray(rgb_frame)
                 main_qt_image = QImage(main_rgb_copy.data, w, h, bytes_per_line, QImage.Format.Format_RGB888)
-                main_pixmap = QPixmap.fromImage(main_qt_image).scaled(
-                    self.video_label.size(),
-                    Qt.AspectRatioMode.KeepAspectRatio,
-                    Qt.TransformationMode.SmoothTransformation
-                )
+                main_pixmap = QPixmap.fromImage(main_qt_image)#.scaled(
+                #     self.video_label.size(),
+                #     Qt.AspectRatioMode.KeepAspectRatio,
+                #     Qt.TransformationMode.SmoothTransformation
+                # )
                 self.video_label.setPixmap(main_pixmap)
             except Exception as e:
                 print(f"Error updating main video: {e}")
@@ -332,15 +329,15 @@ class KickerMainWindow(QMainWindow):
     
     def update_processing_fps(self):
         """Aktualisiert die Verarbeitungs-FPS-Anzeigen"""
-        self.camera_fps_label.setText(f"Camera: {self.camera_fps:.1f} FPS")
-        self.preprocessing_fps_label.setText(f"Preprocessing: {self.preprocessing_fps:.1f} FPS")
-        self.ball_detection_fps_label.setText(f"Ball Detection: {self.ball_detection_fps:.1f} FPS")
-        self.field_detection_fps_label.setText(f"Field Detection: {self.field_detection_fps:.1f} FPS")
-        self.player_detection_fps_label.setText(f"Player Detection: {self.player_detection_fps:.1f} FPS")
+        self.camera_fps_label.setText(f"{self.camera_fps:.1f} FPS")
+        self.preprocessing_fps_label.setText(f"{self.preprocessing_fps:.1f} FPS")
+        self.ball_detection_fps_label.setText(f"{self.ball_detection_fps:.1f} FPS")
+        self.field_detection_fps_label.setText(f"{self.field_detection_fps:.1f} FPS")
+        self.player_detection_fps_label.setText(f"{self.player_detection_fps:.1f} FPS")
     
     def update_display_fps(self, fps):
         """Aktualisiert die Display-FPS"""
-        self.display_fps_label.setText(f"Display: {fps:.1f} FPS")
+        self.display_fps_label.setText(f"{fps:.1f} FPS")
     
     def update_fps(self, fps):
         """Legacy-Methode - leitet jetzt zur Display-FPS weiter"""
@@ -349,6 +346,10 @@ class KickerMainWindow(QMainWindow):
     def update_score(self, score):
         """Aktualisiert die Punkteanzeige"""
         self.big_score_label.setText(score.replace(":", " : "))
+    
+    def get_current_max_goals(self):
+        """Gibt die aktuellen max_goals zurück, die vom Hauptprozess empfangen wurden"""
+        return self.current_max_goals
     
     # Event-Handler-Delegationen
     def toggle_processing_mode(self, checked):
@@ -377,18 +378,3 @@ class KickerMainWindow(QMainWindow):
         
         event.accept()
         print("GUI closeEvent abgeschlossen.")
-
-
-if __name__ == "__main__":
-    # Change to parent directory so imports work correctly
-    import os
-    import sys
-    parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    os.chdir(parent_dir)
-    sys.path.insert(0, parent_dir)
-    
-    import main
-    import multiprocessing as mp
-    
-    mp.set_start_method('spawn', force=True)
-    main.main_gui()
