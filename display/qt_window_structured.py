@@ -82,7 +82,7 @@ class KickerMainWindow(QMainWindow):
         # Timer to poll the results queue with optimized rate
         self.update_timer = QTimer()
         self.update_timer.timeout.connect(self.poll_results_queue)
-        self.update_timer.start(16)  # ~60 FPS update rate for UI
+        self.update_timer.start(1)  # ~60 FPS update rate for UI
 
         self.add_log_message("GUI initialized with multi-processing architecture")
         
