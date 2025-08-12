@@ -2,8 +2,8 @@
 
 # ================== VIDEO SETTINGS ==================
 # VIDEO_PATH = "C:\\Users\\Tim\\OneDrive - TH Köln\\03_Hochschule\\6_Semester\\Kicker_Projekt\\Test-Videos\\IDS_Cam2\\08.avi"
-#VIDEO_PATH = "C:\\Users\\joshu\\OneDrive - TH Köln\\Kicker (Kicker Klaus) - General\\Kicker_Videos\\2025-08-06\\11.avi"
-VIDEO_PATH = "/Users/romanheck/Desktop/Hochschule/achtes Semester/AKAT/kicker_farbkalibrierung/13.avi"
+VIDEO_PATH = "C:\\Users\\joshu\\OneDrive - TH Köln\\Kicker (Kicker Klaus) - General\\Kicker_Videos\\2025-08-06\\11.avi"
+# VIDEO_PATH = "/Users/romanheck/Desktop/Hochschule/achtes Semester/AKAT/kicker_farbkalibrierung/13.avi"
 IS_LIVE = False
 
 CAM_WIDTH = 1440
@@ -40,12 +40,8 @@ FIELD_CALIBRATION_FILE = "detection\\field_calibration.json"
 
 # ================== BALL DETECTION (HSV VALUES) ==================
 # Yellow ball - main color
-BALL_LOWER = (20, 50, 10)
+BALL_LOWER = (20, 100, 100)
 BALL_UPPER = (40, 255, 255)
-
-# Yellow ball - alternative values
-BALL_LOWER_ALT = (20, 120, 200)
-BALL_UPPER_ALT = (40, 255, 255)
 
 # #Farbeinstellungen HSV (orange)
 # BALL_LOWER = (0, 120, 200)
@@ -64,12 +60,8 @@ BALL_UPPER_ALT = (40, 255, 255)
 # FIELD_GREEN_UPPER_ALT = (115, 130, 100)
 
 # # Farbeinstellungen für grünes Spielfeld (HSV)
-FIELD_GREEN_LOWER = (20, 40, 40)
-FIELD_GREEN_UPPER = (80, 255, 100)
-
-# # Alternative Farbwerte für verschiedene Beleuchtungen
-FIELD_GREEN_LOWER_ALT = (35, 30, 30)
-FIELD_GREEN_UPPER_ALT = (100, 255, 100)
+FIELD_GREEN_LOWER = (20, 30, 30)
+FIELD_GREEN_UPPER = (100, 255, 100)
 
 # # Farbeinstellungen für grünes Spielfeld (HSV)
 # FIELD_MARKER_LOWER = ((149/2 - 10), (0.4624*255 - 30), (0.3647*255 - 30))

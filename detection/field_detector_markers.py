@@ -5,13 +5,10 @@ import os
 import time
 from collections import deque
 from config import (
-    GOAL_LOWER, GOAL_UPPER,
     FIELD_MIN_AREA, FIELD_STABILITY_FRAMES,
-    GOAL_DETECTION_CONFIDENCE, MIN_GOAL_AREA,
+    GOAL_DETECTION_CONFIDENCE,
     FIELD_CALIBRATION_FILE,
-    FIELD_CLOSE_KERNEL_SIZE, FIELD_OPEN_KERNEL_SIZE,
-    WIDTH_RATIO, HEIGHT_RATIO, FIELD_MARKER_LOWER, FIELD_MARKER_UPPER,
-    FIELD_MARKER_LOWER_ALT, FIELD_MARKER_UPPER_ALT
+    WIDTH_RATIO, HEIGHT_RATIO, FIELD_MARKER_LOWER, FIELD_MARKER_UPPER
 )
 
 class FieldDetector:
@@ -20,9 +17,6 @@ class FieldDetector:
 
         self.field_lower = FIELD_MARKER_LOWER
         self.field_upper = FIELD_MARKER_UPPER
-
-        self.field_lower_alt = FIELD_MARKER_LOWER_ALT
-        self.field_upper_alt = FIELD_MARKER_UPPER_ALT
 
         # self.goal_lower = GOAL_LOWER
         # self.goal_upper = GOAL_UPPER
@@ -63,9 +57,7 @@ class FieldDetector:
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
     
         # Maske für grüne Marker erstellen
-        mask1 = cv2.inRange(hsv, self.field_lower, self.field_upper)
-        mask2 = cv2.inRange(hsv, self.field_lower_alt, self.field_upper_alt)
-        self.marker_mask = cv2.bitwise_or(mask1, mask2)
+        self.marker_mask = cv2.inRange(hsv, self.field_lower, self.field_upper)
 
         # Morphologische Operationen anwenden (verwende vorkompilierte Kernel)
         self.marker_mask = cv2.morphologyEx(self.marker_mask, cv2.MORPH_CLOSE, self.kernel_close)
