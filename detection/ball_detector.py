@@ -2,8 +2,7 @@ import cv2
 import numpy as np
 from collections import deque
 from config import (
-    BALL_LOWER, BALL_UPPER, 
-    BALL_LOWER_ALT, BALL_UPPER_ALT,
+    BALL_LOWER, BALL_UPPER,
     BALL_SMOOTHER_WINDOW_SIZE, BALL_MAX_MISSING_FRAMES,
     BALL_CONFIDENCE_THRESHOLD, BALL_TRAIL_MAX_LENGTH,
     DISPLAY_FPS, WIDTH_RATIO, AREA_RATIO
@@ -15,8 +14,6 @@ class BallDetector:
 
         self.lower = BALL_LOWER
         self.upper = BALL_UPPER
-        self.lower_alt = BALL_LOWER_ALT
-        self.upper_alt = BALL_UPPER_ALT
 
         self.display_interval = 1.0 / DISPLAY_FPS
 
@@ -42,9 +39,7 @@ class BallDetector:
         """Ball detection with multi-criteria evaluation"""
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
 
-        mask1 = cv2.inRange(hsv, self.lower, self.upper)
-        mask2 = cv2.inRange(hsv, self.lower_alt, self.upper_alt)
-        mask = cv2.bitwise_or(mask1, mask2)
+        mask = cv2.inRange(hsv, self.lower, self.upper)
         
         # When field corners are provided, create a mask for the field area
         if field_corners is not None:

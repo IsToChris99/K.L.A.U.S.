@@ -181,7 +181,7 @@ class CombinedTracker:
                 self.field_detector.calibrate(frame)
                 after_calibration = time.perf_counter_ns()
                 calibration_time = (after_calibration - before_calibration) / 1e9
-                print(f'\rCalibration attempt took: {calibration_time:.4f} seconds', end='')
+                # print(f'\rCalibration attempt took: {calibration_time:.4f} seconds', end='')
 
             # Store current field data (sehr schnell, blockiert nicht)
             with self.result_lock:
