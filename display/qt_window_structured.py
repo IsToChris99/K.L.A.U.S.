@@ -150,6 +150,8 @@ class KickerMainWindow(QMainWindow):
             self.apply_settings_btn.clicked.connect(self.event_handlers.apply_settings)
         if hasattr(self, 'reset_settings_btn'):
             self.reset_settings_btn.clicked.connect(self.event_handlers.reset_settings)
+        if hasattr(self, 'wb_one_time_checkbox'):
+            self.wb_one_time_checkbox.clicked.connect(self.event_handlers.white_balance_once)
 
         # Processing mode toggle
         if hasattr(self, 'processing_mode_checkbox'):

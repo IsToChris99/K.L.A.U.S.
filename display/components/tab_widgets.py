@@ -302,11 +302,18 @@ class SettingsTab(QWidget):
 
         # ---- Werte aus config übernehmen ----
         # Frame Rate (bleibt SpinBox da es Integer-Werte sind)
-        self.parent_window.framerate_input = QSpinBox()
+        self.parent_window.framerate_input = QSlider(Qt.Orientation.Horizontal)
         self.parent_window.framerate_input.setRange(1, 250)
         self.parent_window.framerate_input.setValue(FRAME_RATE_TARGET)
-        self.parent_window.framerate_input.setSuffix(" fps")
-        layout.addRow("Target Frame Rate:", self.parent_window.framerate_input)
+        self.parent_window.framerate_label = QLabel(f"{FRAME_RATE_TARGET} fps")
+        self.parent_window.framerate_input.valueChanged.connect(
+            lambda v: self.parent_window.framerate_label.setText(f"{v} fps")
+        )
+
+        fps_layout = QHBoxLayout()
+        fps_layout.addWidget(self.parent_window.framerate_input)
+        fps_layout.addWidget(self.parent_window.framerate_label)
+        layout.addRow("Target Frame Rate:", fps_layout)
 
         # Exposure Time - jetzt als Slider
         self.parent_window.exposure_time_input = QSlider(Qt.Orientation.Horizontal)

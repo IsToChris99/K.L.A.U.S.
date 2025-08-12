@@ -183,13 +183,13 @@ class EventHandlers:
     @Slot()
     def apply_settings(self):
         """Kamera- und Verarbeitungseinstellungen anwenden"""
-        # Collect camera settings
+        # Collect camera settings - corrected attribute names to match UI components
         camera_settings = {
             'framerate': self.main_window.framerate_input.value(),
-            'exposure_time': self.main_window.exposure_time_input.value(),
-            'gain': self.main_window.gain_input.value(),
-            'black_level': self.main_window.black_level_input.value(),
-            'white_balance_auto': self.main_window.white_balance_input.value()
+            'exposure_time': self.main_window.exposure_time_input.value() / 10.0,  # Convert back from slider value
+            'gain': self.main_window.gain_input.value() / 10.0,  # Convert back from slider value
+            'black_level': self.main_window.black_level_input.value() / 10.0,  # Convert back from slider value
+            'white_balance_auto': self.main_window.wb_auto_checkbox.isChecked()  # Corrected attribute name
         }
         
         # Collect processing settings
@@ -213,24 +213,38 @@ class EventHandlers:
             self.main_window.add_log_message("Settings applied successfully")
             
             # Log the settings for debugging
-            self.main_window.add_log_message(f"Camera: Exposure={camera_settings['exposure_time']}ms, Gain={camera_settings['gain']}dB")
+            self.main_window.add_log_message(f"Camera: Exposure={camera_settings['exposure_time']:.1f}ms, Gain={camera_settings['gain']:.1f}dB")
             self.main_window.add_log_message(f"Processing: Ball Sensitivity={processing_settings['ball_sensitivity']}%")
             
         except Exception as e:
             self.main_window.add_log_message(f"Failed to apply settings: {e}")
     
     @Slot()
+    def white_balance_once(self):
+        """Führt eine einmalige Weißabgleich-Kalibrierung durch"""
+        try:
+            self.main_window.command_queue.put({'type': 'white_balance_once'})
+            self.main_window.add_log_message("White balance calibration triggered")
+        except Exception as e:
+            self.main_window.add_log_message(f"Failed to trigger white balance: {e}")
+    
+    @Slot()
     def reset_settings(self):
         """Alle Einstellungen auf Standardwerte zurücksetzen"""
+        # Reset camera settings to default config values
+        from config import FRAME_RATE_TARGET, EXPOSURE_TIME, GAIN, BLACK_LEVEL, WHITE_BALANCE_AUTO
+        
         # Reset camera settings
-        self.main_window.exposure_time_input.setValue(10.0)
-        self.main_window.gain_input.setValue(1.0)
-        self.main_window.wb_red_input.setValue(1.0)
-        self.main_window.wb_blue_input.setValue(1.0)
-        self.main_window.brightness_input.setValue(0)
-        self.main_window.contrast_input.setValue(1.0)
-        self.main_window.gamma_input.setValue(1.0)
-        self.main_window.framerate_input.setValue(30)
+        self.main_window.framerate_input.setValue(FRAME_RATE_TARGET)
+        self.main_window.exposure_time_input.setValue(int(EXPOSURE_TIME * 10))
+        self.main_window.gain_input.setValue(int(GAIN * 10))
+        self.main_window.black_level_input.setValue(int(BLACK_LEVEL * 10))
+        
+        # Reset white balance
+        if WHITE_BALANCE_AUTO == "Continuous":
+            self.main_window.wb_auto_checkbox.setChecked(True)
+        else:
+            self.main_window.wb_auto_checkbox.setChecked(False)
         
         # Reset processing settings
         self.main_window.ball_sensitivity_input.setValue(50)
