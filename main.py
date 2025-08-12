@@ -422,11 +422,13 @@ class ProcessingProcess(mp.Process):
 
                 # Package for UI
                 final_package = {
-                    'display_frame': preprocessed_frame,
+                    'raw_frame': raw_frame,
+                    'preprocessed_frame': preprocessed_frame,
                     'ball_data': results.get('ball_data'),
                     'player_data': results.get('player_data'),
                     'score': goal_infos if current_score else {'player1': 0, 'player2': 0},
                     'max_goals': max_goals if current_score else 1,
+                    'M_persp': results.get('M_persp', self.latest_M_persp),
                     'M_field': results.get('M_field', self.latest_M_field),
                     'fps_data': self.current_fps.copy(),
                     'processing_mode': 'GPU' if self.use_gpu_processing else 'CPU',

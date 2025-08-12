@@ -11,6 +11,8 @@ from .components.tab_widgets import TrackingTab, CalibrationTab, SettingsTab, Ab
 from .components.ui_components import ScoreSection, ControlSection, VideoSection
 from .components.visualization_engine import VisualizationEngine
 from .components.event_handlers import EventHandlers
+from processing.cpu_preprocessor import CPUPreprocessor
+from processing.gpu_preprocessor import GPUPreprocessor
 
 
 class KickerMainWindow(QMainWindow):
@@ -32,12 +34,16 @@ class KickerMainWindow(QMainWindow):
         self.score_section = ScoreSection(self)
         self.control_section = ControlSection(self)
         self.video_section = VideoSection(self)
-        
+        self.cpu_preprocessor = CPUPreprocessor()
+        self.gpu_preprocessor = GPUPreprocessor()
+
         # Current states
+        self.current_raw_frame = None
         self.current_display_frame = None
         self.current_ball_data = None
         self.current_player_data = None
         self.current_player_data = None
+        self.current_M_persp = None
         self.current_M_field = None
         
         # Visualization modes
@@ -162,9 +168,11 @@ class KickerMainWindow(QMainWindow):
                     items_processed += 1
                     
                     # Update current state
-                    self.current_display_frame = result_package.get("display_frame")
+                    self.current_raw_frame = result_package.get("raw_frame")
+                    self.current_preprocessed_frame = result_package.get("preprocessed_frame")
                     self.current_ball_data = result_package.get("ball_data")
                     self.current_player_data = result_package.get("player_data")
+                    self.current_M_persp = result_package.get("M_persp")
                     self.current_M_field = result_package.get("M_field")
                     
                     # Update score from processing if goals were detected
@@ -215,7 +223,10 @@ class KickerMainWindow(QMainWindow):
                     break
             
             # Update the display only if we have a frame and processed some data
-            if items_processed > 0 and self.current_display_frame is not None:
+            if items_processed > 0 and self.current_raw_frame is not None:
+                #self.current_display_frame = self.current_preprocessed_frame
+                self.current_display_frame = self.cpu_preprocessor.process_display_frame(self.current_raw_frame, self.current_M_persp)
+                #self.current_display_frame = self.gpu_preprocessor.process_display_frame(self.current_raw_frame, self.current_M_persp)
                 self.update_display()
                 
                 # Update Display FPS
@@ -272,19 +283,21 @@ class KickerMainWindow(QMainWindow):
             try:
                 main_rgb_copy = np.ascontiguousarray(rgb_frame)
                 main_qt_image = QImage(main_rgb_copy.data, w, h, bytes_per_line, QImage.Format.Format_RGB888)
-                main_pixmap = QPixmap.fromImage(main_qt_image)#.scaled(
-                #     self.video_label.size(),
-                #     Qt.AspectRatioMode.KeepAspectRatio,
-                #     Qt.TransformationMode.SmoothTransformation
-                # )
+                main_pixmap = QPixmap.fromImage(main_qt_image).scaled(
+                    self.video_label.size(),
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation
+                )
                 self.video_label.setPixmap(main_pixmap)
+                self.settings_video_label.setPixmap(main_pixmap)
+                self.calibration_video_label.setPixmap(main_pixmap)
             except Exception as e:
                 print(f"Error updating main video: {e}")
             
             # Update secondary displays less frequently
-            if update_secondary:
-                self._update_secondary_displays(rgb_frame, frame, h, w, bytes_per_line)
-                self._last_secondary_update_time = current_time
+            # if update_secondary:
+            #     self._update_secondary_displays(rgb_frame, frame, h, w, bytes_per_line)
+            #     self._last_secondary_update_time = current_time
                 
         except Exception as e:
             print(f"Critical error in update_frame: {e}")
