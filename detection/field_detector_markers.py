@@ -98,7 +98,7 @@ class FieldDetector:
         # Überprüfe, ob die Ecken zu nahe beieinander liegen
         if min([np.linalg.norm(top_left - top_right), np.linalg.norm(bottom_left - bottom_right)]) < 50 or \
            min([np.linalg.norm(top_left - bottom_left), np.linalg.norm(top_right - bottom_right)]) < 50:
-            print("\nDetected corners are too close together, skipping field detection.")
+            print("\rDetected corners are too close together, skipping field detection.", end="")
             return None
         
         # Die vier Eckpunkte als field_corners setzen
