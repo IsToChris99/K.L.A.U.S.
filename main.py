@@ -68,7 +68,6 @@ class FieldWorkerProcess(mp.Process):
 
         shm.close()
 
-
 class BallWorkerProcess(mp.Process):
     """Own process for ball detection working on a shared memory frame and optional field state."""
     def __init__(self, shm_name, shape, dtype, tick_queue, field_state_queue, result_queue, running_event):
@@ -133,6 +132,66 @@ class BallWorkerProcess(mp.Process):
 
         shm.close()
 
+class PlayerWorkerProcess(mp.Process):
+    """Own process for player detection working on a shared memory frame."""
+    def __init__(self, shm_name, shape, dtype, tick_queue, field_state_queue, result_queue, running_event, color_config_path=None):
+        super().__init__()
+        self.shm_name = shm_name
+        self.shape = tuple(shape)
+        self.dtype = np.dtype(dtype).str
+        self.tick_queue = tick_queue
+        self.field_state_queue = field_state_queue  # parent broadcasts latest field state
+        self.result_queue = result_queue
+        self.running_event = running_event
+        self.color_config_path = color_config_path
+
+        self.detector = None
+        self.latest_field = {'field_corners': None, 'goals': []}
+
+    def run(self):
+        # Late imports safe for spawn
+        from detection.player_detector import PlayerDetector
+
+        shm = shared_memory.SharedMemory(name=self.shm_name)
+        frame = np.ndarray(self.shape, dtype=np.dtype(self.dtype), buffer=shm.buf)
+        self.detector = PlayerDetector(self.color_config_path)
+
+        while self.running_event.is_set():
+            # Drain field state queue (keep only latest)
+            try:
+                while True:
+                    self.latest_field = self.field_state_queue.get_nowait()
+            except queue.Empty:
+                pass
+
+            # Wait for tick
+            try:
+                seq = self.tick_queue.get(timeout=0.2)
+            except queue.Empty:
+                continue
+
+            # Run player detection on current shared frame
+            try:
+                team1_boxes, team2_boxes = self.detector.detect_players(frame)
+            except Exception:
+                # Robustness: swallow per-frame errors
+                team1_boxes, team2_boxes = [], []
+
+            result = {
+                'seq': seq,
+                'player_data': {
+                    'team1_boxes': team1_boxes,
+                    'team2_boxes': team2_boxes,
+                    'total_players': len(team1_boxes) + len(team2_boxes)
+                }
+            }
+
+            if not self.result_queue.full():
+                self.result_queue.put(result)
+
+        shm.close()
+
+
 # ================== PROCESSING PROCESS ==================
 
 class ProcessingProcess(mp.Process):
@@ -176,12 +235,14 @@ class ProcessingProcess(mp.Process):
             'preprocessing': {'count': 0, 'last_time': time.time()},
             'ball_detection': {'count': 0, 'last_time': time.time()},
             'field_detection': {'count': 0, 'last_time': time.time()},
+            'player_detection': {'count': 0, 'last_time': time.time()},
         }
         self.current_fps = {
             'camera': 0.0,
             'preprocessing': 0.0,
             'ball_detection': 0.0,
             'field_detection': 0.0,
+            'player_detection': 0.0,
         }
 
     def run(self):
@@ -213,12 +274,15 @@ class ProcessingProcess(mp.Process):
         # IPC queues for workers
         field_tick_q = mp.Queue(maxsize=2)
         ball_tick_q = mp.Queue(maxsize=2)
+        player_tick_q = mp.Queue(maxsize=2)
         field_result_q = mp.Queue(maxsize=5)
         ball_result_q = mp.Queue(maxsize=5)
+        player_result_q = mp.Queue(maxsize=5)
         field_state_broadcast_q = mp.Queue(maxsize=5)
 
         field_proc = None
         ball_proc = None
+        player_proc = None
 
         try:
             while self.running_event.is_set():
@@ -257,9 +321,11 @@ class ProcessingProcess(mp.Process):
 
                     field_proc = FieldWorkerProcess(shm_name, shm_shape, shm_dtype, field_tick_q, field_result_q, self.running_event)
                     ball_proc = BallWorkerProcess(shm_name, shm_shape, shm_dtype, ball_tick_q, field_state_broadcast_q, ball_result_q, self.running_event)
+                    player_proc = PlayerWorkerProcess(shm_name, shm_shape, shm_dtype, player_tick_q, field_state_broadcast_q, player_result_q, self.running_event)
                     field_proc.start()
                     ball_proc.start()
-                    print(f"Spawned Field/Ball worker processes using shared memory: {shm_name}")
+                    player_proc.start()
+                    print(f"Spawned Field/Ball/Player worker processes using shared memory: {shm_name}")
 
                 # Write current frame to shared memory (copy once)
                 np_view = np.ndarray(shm_shape, dtype=shm_dtype, buffer=shm.buf)
@@ -267,7 +333,7 @@ class ProcessingProcess(mp.Process):
 
                 seq += 1
                 # Notify workers with lightweight tick
-                for q in (field_tick_q, ball_tick_q):
+                for q in (field_tick_q, ball_tick_q, player_tick_q):
                     try:
                         if not q.full():
                             q.put(seq, block=False)
@@ -315,6 +381,16 @@ class ProcessingProcess(mp.Process):
                 except queue.Empty:
                     pass
 
+                # Collect player results (drain queue)
+                try:
+                    while True:
+                        pr = player_result_q.get_nowait()
+                        results['player_data'] = pr.get('player_data')
+                        # FPS accounting for player detection
+                        self.update_fps_tracker('player_detection', time.time())
+                except queue.Empty:
+                    pass
+
                 # Update goal scorer with latest data
                 if results.get('ball_data'):
                     ball_pos = results['ball_data'].get('ball_position')
@@ -345,6 +421,7 @@ class ProcessingProcess(mp.Process):
                     'ball_data': results.get('ball_data'),
                     'player_data': results.get('player_data'),
                     'score': results.get('score', current_score if current_score is not None else {'player1': 0, 'player2': 0}),
+                    'max_goals': self.goal_scorer.get_score()['max_goals'],
                     'M_field': results.get('M_field', self.latest_M_field),
                     'fps_data': self.current_fps.copy(),
                     'processing_mode': 'GPU' if self.use_gpu_processing else 'CPU',
@@ -364,10 +441,10 @@ class ProcessingProcess(mp.Process):
 
         finally:
             # Cleanup workers and shared memory
-            for proc in (field_proc, ball_proc):
+            for proc in (field_proc, ball_proc, player_proc):
                 if proc is not None:
                     proc.join(timeout=1)
-            for proc in (field_proc, ball_proc):
+            for proc in (field_proc, ball_proc, player_proc):
                 if proc is not None and proc.is_alive():
                     proc.terminate()
                     proc.join(timeout=1)
@@ -505,7 +582,7 @@ def camera_thread_func(raw_frame_queue, camera_command_queue, running_event):
     camera_last_fps_time = time.time()
     camera_fps = 0.0
     
-    def handle_camera_command(camera, command):
+    def _handle_camera_command(camera, command):
         """Handle camera-specific commands"""
         
         if command.get('type') == 'update_camera_settings':
@@ -535,7 +612,7 @@ def camera_thread_func(raw_frame_queue, camera_command_queue, running_event):
             try:
                 while not camera_command_queue.empty():
                     command = camera_command_queue.get_nowait()
-                    handle_camera_command(camera, command)
+                    _handle_camera_command(camera, command)
             except Exception as e:
                 print(f"ERROR: Exception in camera command handling: {e}")
             

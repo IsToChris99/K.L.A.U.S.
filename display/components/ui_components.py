@@ -9,7 +9,6 @@ from PySide6.QtWidgets import (
     QSpinBox, QFormLayout
 )
 
-
 class ScoreSection:
     """Klasse für die Punkte-Anzeige"""
     
@@ -161,9 +160,9 @@ class ScoreSection:
         """)
         limit_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
-        # Input field for goal limit
+        # Input field for goal limit with slider
         self.parent_window.goal_limit_input = QSpinBox()
-        self.parent_window.goal_limit_input.setRange(1, 999_999)
+        self.parent_window.goal_limit_input.setRange(1, 999999)
         self.parent_window.goal_limit_input.setValue(10)  # Default value
         self.parent_window.goal_limit_input.setStyleSheet("""
             QGroupBox {
@@ -187,17 +186,17 @@ class ScoreSection:
             QPushButton {
                 font-size: 14px;
                 padding: 5px 10px;
-                background-color: #FFA726;
+                background-color: #58ad57;
                 color: white;
                 border: none;
                 border-radius: 4px;
                 margin-top: 5px;
             }
             QPushButton:hover {
-                background-color: #FF9800;
+                background-color: #45a049;
             }
             QPushButton:pressed {
-                background-color: #F57C00;
+                background-color: #3d8b40;
             }
         """)
         
@@ -207,17 +206,17 @@ class ScoreSection:
             QPushButton {
                 font-size: 14px;
                 padding: 5px 10px;
-                background-color: #FFA726;
+                background-color: #58ad57;
                 color: white;
                 border: none;
                 border-radius: 4px;
                 margin-top: 5px;
             }
             QPushButton:hover {
-                background-color: #FF9800;
+                background-color: #45a049;
             }
             QPushButton:pressed {
-                background-color: #F57C00;
+                background-color: #3d8b40;
             }
         """)
         
@@ -265,7 +264,6 @@ class ScoreSection:
         
         return match_buttons_widget
 
-
 class ControlSection:
     """Klasse für die Steuerungssektion"""
     
@@ -299,17 +297,58 @@ class ControlSection:
     def create_visualization_controls(self):
         """Erstellt die Visualisierungs-Buttons"""
         viz_group = QGroupBox("Display Mode")
-        viz_layout = QVBoxLayout(viz_group)
+        viz_layout = QHBoxLayout(viz_group)  # Changed to horizontal layout
+        
+        # Left side: Display mode buttons (2/3 of space)
+        mode_buttons_widget = QWidget()
+        mode_buttons_layout = QVBoxLayout(mode_buttons_widget)
+        mode_buttons_layout.setContentsMargins(0, 0, 0, 0)
         
         self.parent_window.ball_only_btn = QPushButton("Ball Only")
         self.parent_window.field_only_btn = QPushButton("Field Only")
+        self.parent_window.player_only_btn = QPushButton("Player Only")
+
+        mode_buttons_layout.addWidget(self.parent_window.ball_only_btn)
+        mode_buttons_layout.addWidget(self.parent_window.field_only_btn)
+        mode_buttons_layout.addWidget(self.parent_window.player_only_btn)
+        
+        # Right side: Combined button and Toggle detections button (1/3 of space)
+        right_widget = QWidget()
+        right_layout = QVBoxLayout(right_widget)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        
         self.parent_window.combined_btn = QPushButton("Combined")
+        self.parent_window.combined_btn.setStyleSheet("""
+            QPushButton {
+                padding: 8px 12px;
+                background-color: lightgreen;
+                color: white;
+                margin-top: 5px;
+            }
+        """)
         
-        self.parent_window.combined_btn.setStyleSheet("background-color: lightgreen;")
+        self.parent_window.toggle_detections_btn = QPushButton("Hide Detections")
+        self.parent_window.toggle_detections_btn.setStyleSheet("""
+            QPushButton {
+                padding: 8px 12px;
+                background-color: #FFA726;
+                color: white;
+            }
+            QPushButton:hover {
+                background-color: #FF9800;
+            }
+            QPushButton:pressed {
+                background-color: #F57C00;
+            }
+        """)
         
-        viz_layout.addWidget(self.parent_window.ball_only_btn)
-        viz_layout.addWidget(self.parent_window.field_only_btn)
-        viz_layout.addWidget(self.parent_window.combined_btn)
+        right_layout.addWidget(self.parent_window.combined_btn)
+        right_layout.addWidget(self.parent_window.toggle_detections_btn)
+        right_layout.addStretch()  # Add stretch to push buttons to top
+        
+        # Add widgets to main layout with 2:1 ratio
+        viz_layout.addWidget(mode_buttons_widget, 2)  # 2/3 of space
+        viz_layout.addWidget(right_widget, 1)         # 1/3 of space
         
         return viz_group
     
@@ -338,33 +377,53 @@ class ControlSection:
         return settings_group
     
     def create_status_section(self):
-        """Erstellt die Status-Sektion mit detaillierten FPS-Anzeigen"""
+        """Erstellt die Status-Sektion mit detaillierten FPS-Anzeigen in zwei Spalten mit ausgerichteten Zahlen"""
         status_group = QGroupBox("Status and Performance")
-        status_layout = QVBoxLayout(status_group)
-        
-        self.parent_window.process_status_label = QLabel("Process: Running")
+        status_layout = QHBoxLayout(status_group)  # Hauptlayout horizontal
         
         # Individual FPS labels for different components
-        self.parent_window.camera_fps_label = QLabel("Camera: 0.0 FPS")
-        self.parent_window.preprocessing_fps_label = QLabel("Preprocessing: 0.0 FPS")
-        self.parent_window.ball_detection_fps_label = QLabel("Ball Detection: 0.0 FPS")
-        self.parent_window.field_detection_fps_label = QLabel("Field Detection: 0.0 FPS")
-        self.parent_window.display_fps_label = QLabel("Display: 0.0 FPS")
+        self.parent_window.camera_fps_label = QLabel("0.0 FPS")
+        self.parent_window.preprocessing_fps_label = QLabel("0.0 FPS")
+        self.parent_window.ball_detection_fps_label = QLabel("0.0 FPS")
+        self.parent_window.field_detection_fps_label = QLabel("0.0 FPS")
+        self.parent_window.player_detection_fps_label = QLabel("0.0 FPS")
+        self.parent_window.display_fps_label = QLabel("0.0 FPS")
         
-        # Style the FPS labels
-        fps_style = "color: #2E7D32; font-size: 11px; font-family: monospace;"
+        # Style the FPS labels - right aligned for better number alignment
+        fps_style = "color: #2E7D32; text-align: right; min-width: 60px;"
         self.parent_window.camera_fps_label.setStyleSheet(fps_style)
         self.parent_window.preprocessing_fps_label.setStyleSheet(fps_style)
         self.parent_window.ball_detection_fps_label.setStyleSheet(fps_style)
         self.parent_window.field_detection_fps_label.setStyleSheet(fps_style)
+        self.parent_window.player_detection_fps_label.setStyleSheet(fps_style)
         self.parent_window.display_fps_label.setStyleSheet(fps_style)
         
-        status_layout.addWidget(self.parent_window.process_status_label)
-        status_layout.addWidget(self.parent_window.camera_fps_label)
-        status_layout.addWidget(self.parent_window.preprocessing_fps_label)
-        status_layout.addWidget(self.parent_window.ball_detection_fps_label)
-        status_layout.addWidget(self.parent_window.field_detection_fps_label)
-        status_layout.addWidget(self.parent_window.display_fps_label)
+        # Set alignment for all FPS labels
+        self.parent_window.camera_fps_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.parent_window.preprocessing_fps_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.parent_window.ball_detection_fps_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.parent_window.field_detection_fps_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.parent_window.player_detection_fps_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.parent_window.display_fps_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        
+        # Left column: Camera, Preprocessing, Display
+        left_column = QFormLayout()
+        left_column.addRow("Camera:", self.parent_window.camera_fps_label)
+        left_column.addRow("Preprocessing:", self.parent_window.preprocessing_fps_label)
+        left_column.addRow("Display:", self.parent_window.display_fps_label)
+        
+        # Right column: Ball Detection, Field Detection, Player Detection
+        right_column = QFormLayout()
+        right_column.addRow("Ball Detection:", self.parent_window.ball_detection_fps_label)
+        right_column.addRow("Field Detection:", self.parent_window.field_detection_fps_label)
+        right_column.addRow("Player Detection:", self.parent_window.player_detection_fps_label)
+
+        middle_empty_place = QFormLayout()
+
+        # Add both columns to the main horizontal layout
+        status_layout.addLayout(left_column, 2)
+        status_layout.addLayout(middle_empty_place, 1)
+        status_layout.addLayout(right_column, 2)
         
         return status_group
     
@@ -378,7 +437,6 @@ class ControlSection:
         log_layout.addWidget(self.parent_window.log_text)
         
         return log_group
-
 
 class VideoSection:
     """Klasse für die Video-Sektion"""

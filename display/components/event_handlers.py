@@ -17,19 +17,37 @@ class EventHandlers:
     def set_visualization_mode(self, mode):
         """Setzt den Visualisierungsmodus"""
         self.main_window.visualization_mode = mode
-        mode_names = {1: "Ball", 2: "Field", 3: "Combined"}
+        mode_names = {1: "Ball", 2: "Field", 3: "Player", 4: "Combined"}
         
         # Reset button highlighting
-        for btn in [self.main_window.ball_only_btn, self.main_window.field_only_btn, self.main_window.combined_btn]:
+        for btn in [self.main_window.ball_only_btn, self.main_window.field_only_btn, 
+                   self.main_window.player_only_btn]:
             btn.setStyleSheet("")
-        
+
+        self.main_window.combined_btn.setStyleSheet("""
+            QPushButton {
+                padding: 8px 12px;
+                color: white;
+                margin-top: 5px;
+            }
+        """)
+
         # Highlight active button
         if mode == 1:
             self.main_window.ball_only_btn.setStyleSheet("background-color: lightgreen;")
         elif mode == 2:
             self.main_window.field_only_btn.setStyleSheet("background-color: lightgreen;")
         elif mode == 3:
-            self.main_window.combined_btn.setStyleSheet("background-color: lightgreen;")
+            self.main_window.player_only_btn.setStyleSheet("background-color: lightgreen;")
+        elif mode == 4:
+            self.main_window.combined_btn.setStyleSheet("""
+                QPushButton {
+                    padding: 8px 12px;
+                    background-color: lightgreen;
+                    color: white;
+                    margin-top: 5px;
+                }
+            """)
 
         self.main_window.add_log_message(f"Visualization mode set to: {mode_names.get(mode, 'Unknown')}")
     
@@ -125,9 +143,12 @@ class EventHandlers:
     def set_goal_limit_default(self):
         """Setzt das Standard-Torlimit und sendet an die Verarbeitung"""
         try:
-            self.main_window.goal_limit_input.setValue(10)
             self.main_window.command_queue.put({'type': 'set_max_goals', 'max_goals': 10, 'is_infinity': False})
             self.main_window.add_log_message("Goal limit set to 10")
+            # Block signals to prevent triggering on_goal_limit_changed
+            self.main_window.goal_limit_input.blockSignals(True)
+            self.main_window.goal_limit_input.setValue(10)
+            self.main_window.goal_limit_input.blockSignals(False)
         except Exception:
             pass
 
@@ -135,8 +156,12 @@ class EventHandlers:
     def set_goal_limit_infinity(self):
         """Setzt unendliches Torlimit und sendet an die Verarbeitung"""
         try:
-            self.main_window.command_queue.put({'type': 'set_max_goals', 'max_goals': None, 'is_infinity': True})
+            self.main_window.command_queue.put({'type': 'set_max_goals', 'max_goals': 9999, 'is_infinity': True})
             self.main_window.add_log_message("Goal limit set to Infinity")
+            # Block signals to prevent triggering on_goal_limit_changed
+            self.main_window.goal_limit_input.blockSignals(True)
+            self.main_window.goal_limit_input.setValue(9999)  # Update UI to reflect infinity
+            self.main_window.goal_limit_input.blockSignals(False)
         except Exception:
             pass
 
@@ -256,3 +281,55 @@ class EventHandlers:
         self.main_window.processing_resolution_input.setCurrentIndex(1)
         
         self.main_window.add_log_message("Settings reset to defaults")
+    
+    @Slot()
+    def toggle_detections(self):
+        """Schaltet die Anzeige der Detections ein/aus"""
+        # Toggle the visualization engine's detection display
+        show_detections = self.main_window.visualization_engine.toggle_detections()
+        
+        # Update button text and style based on current state
+        if show_detections:
+            self.main_window.toggle_detections_btn.setText("Hide Detections")
+            self.main_window.toggle_detections_btn.setStyleSheet("""
+                QPushButton {
+                    padding: 8px 12px;
+                    background-color: #FFA726;
+                    color: white;
+                }
+                QPushButton:hover {
+                    background-color: #FF9800;
+                }
+                QPushButton:pressed {
+                    background-color: #F57C00;
+                }
+            """)
+            self.main_window.add_log_message("Detections enabled")
+        else:
+            self.main_window.toggle_detections_btn.setText("Show Detections")
+            self.main_window.toggle_detections_btn.setStyleSheet("""
+                QPushButton {
+                    padding: 8px 12px;
+                    background-color: #58ad57;
+                    color: white;
+                }
+                QPushButton:hover {
+                    background-color: #45A049;
+                }
+                QPushButton:pressed {
+                    background-color: #3d8b40;
+                }
+            """)
+            self.main_window.add_log_message("Detections disabled")
+            
+            for btn in [self.main_window.ball_only_btn, self.main_window.field_only_btn, 
+                self.main_window.player_only_btn]:
+                btn.setStyleSheet("")
+
+            self.main_window.combined_btn.setStyleSheet("""
+                QPushButton {
+                    padding: 8px 12px;
+                    color: white;
+                    margin-top: 5px;
+                }
+            """)

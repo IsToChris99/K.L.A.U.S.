@@ -11,7 +11,7 @@ from typing import Dict, Optional, Tuple
 import cv2
 import numpy as np
 from ids_peak import ids_peak, ids_peak_ipl_extension
-import config
+from config import (FRAME_RATE_TARGET, EXPOSURE_TIME, GAIN, BLACK_LEVEL, WHITE_BALANCE_AUTO)
 
 
 class IDS_Camera:
@@ -119,11 +119,11 @@ class IDS_Camera:
         settings = [
             ("PixelFormat", "BayerRG8", "SetCurrentEntry"),
             ("AcquisitionFrameRateTargetEnable", True, "SetValue"),
-            ("AcquisitionFrameRateTarget", 250.0, "SetValue"),
-            ("ExposureTime", 2000.0, "SetValue"),
+            ("AcquisitionFrameRateTarget", FRAME_RATE_TARGET, "SetValue"),
+            ("ExposureTime", EXPOSURE_TIME, "SetValue"),
             ("GainAuto", "Off", "SetCurrentEntry"),
-            ("Gain", 10.0, "SetValue"),
-            ("BlackLevel", 10.0, "SetValue"),
+            ("Gain", GAIN, "SetValue"),
+            ("BlackLevel", BLACK_LEVEL, "SetValue"),
         ]
         
         for node_name, value, method in settings:

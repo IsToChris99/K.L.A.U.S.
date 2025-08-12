@@ -29,7 +29,7 @@ AREA_RATIO = WIDTH_RATIO * HEIGHT_RATIO
 # ================== CAMERA DEFAULT/INITIALIZE SETTINGS ==================
 FRAME_RATE_TARGET = 250.0
 EXPOSURE_TIME = 2000.0
-GAIN = 10.0
+GAIN = 15.0
 BLACK_LEVEL = 10.0
 WHITE_BALANCE_AUTO = "Off"
 
@@ -100,7 +100,7 @@ FIELD_HEIGHT_M = 0.68 # 68 cm
 # Goal scoring system
 GOAL_DISAPPEAR_FRAMES = 15  # Frames without detection to count as goal
 GOAL_REVERSAL_TIME_WINDOW = 3.0  # Seconds to check for goal reversal
-GOAL_DIRECTION_THRESHOLD_DISTANCE = 50  # Distance threshold to goal for direction-based scoring
+GOAL_DIRECTION_THRESHOLD_DISTANCE = 200  # Distance threshold to goal for direction-based scoring
 
 # ================== PERFORMANCE & DISPLAY ==================
 DISPLAY_FPS = 30

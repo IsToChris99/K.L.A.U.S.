@@ -19,7 +19,11 @@ class VisualizationEngine:
         # Visualization modes
         self.BALL_ONLY = 1
         self.FIELD_ONLY = 2  
-        self.COMBINED = 3
+        self.PLAYER_ONLY = 3
+        self.COMBINED = 4
+        
+        # Toggle states for showing/hiding detections
+        self.show_detections = True
     
     def draw_ball_visualization(self, frame, ball_data):
         """Zeichnet Ball-Visualisierung auf den Frame"""
@@ -98,18 +102,61 @@ class VisualizationEngine:
             field_corners_int = np.array(field_data['field_corners'], dtype=np.int32)
             cv2.drawContours(frame, [field_corners_int], -1, config.COLOR_FIELD_BOUNDS, 1)
     
-    def apply_visualizations(self, frame, visualization_mode, ball_data=None, field_data=None):
+    def draw_player_visualization(self, frame, player_data):
+        """Zeichnet Spieler-Visualisierung auf den Frame"""
+        if player_data is None:
+            return
+
+        # Team 1 players (e.g., blue)
+        team1_boxes = player_data.get('team1_boxes', [])
+        for box in team1_boxes:
+            x, y, w, h = box
+            # Draw bounding box for team 1
+            cv2.rectangle(frame, (x, y), (x + w, y + h), (255, 0, 0), 2)  # Blue
+            # Draw team label
+            cv2.putText(frame, "T1", (x, y - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1)
+
+        # Team 2 players (e.g., red)  
+        team2_boxes = player_data.get('team2_boxes', [])
+        for box in team2_boxes:
+            x, y, w, h = box
+            # Draw bounding box for team 2
+            cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 0, 255), 2)  # Red
+            # Draw team label
+            cv2.putText(frame, "T2", (x, y - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+
+        # Draw total player count
+        total_players = player_data.get('total_players', 0)
+        cv2.putText(frame, f"Players: {total_players}", (10, 30), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+    
+    def apply_visualizations(self, frame, visualization_mode, ball_data=None, field_data=None, player_data=None):
         """Wendet Visualisierungen basierend auf dem aktuellen Modus an"""
         if frame is None:
             return None
             
         display_frame = frame.copy()
         
-        # Add visualizations based on current mode
-        if visualization_mode in [self.BALL_ONLY, self.COMBINED]:
-            self.draw_ball_visualization(display_frame, ball_data)
-            
-        if visualization_mode in [self.FIELD_ONLY, self.COMBINED]:
-            self.draw_field_visualization(display_frame, field_data)
+        # Only draw visualizations if enabled
+        if self.show_detections:
+            # Add visualizations based on current mode
+            if visualization_mode in [self.BALL_ONLY]:
+                self.draw_ball_visualization(display_frame, ball_data)
+                
+            elif visualization_mode in [self.FIELD_ONLY]:
+                self.draw_field_visualization(display_frame, field_data)
+                
+            elif visualization_mode in [self.PLAYER_ONLY]:
+                self.draw_player_visualization(display_frame, player_data)
+                
+            elif visualization_mode in [self.COMBINED]:
+                self.draw_ball_visualization(display_frame, ball_data)
+                self.draw_field_visualization(display_frame, field_data)
+                self.draw_player_visualization(display_frame, player_data)
         
         return display_frame
+    
+    def toggle_detections(self):
+        """Schaltet die Anzeige der Detections ein/aus"""
+        self.show_detections = not self.show_detections
+        return self.show_detections

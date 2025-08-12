@@ -3,12 +3,11 @@ import cv2
 import numpy as np
 import json
 import os
-from sklearn.cluster import KMeans
-from PyQt5.QtWidgets import (
+from PySide6.QtWidgets import (
     QApplication, QLabel, QPushButton, QFileDialog, QVBoxLayout, QWidget, QInputDialog
 )
-from PyQt5.QtGui import QPixmap, QImage, QPainter, QColor, QPen
-from PyQt5.QtCore import Qt, QRect
+from PySide6.QtGui import QPixmap, QImage, QPainter, QColor, QPen
+from PySide6.QtCore import Qt, QRect
 
 
 class ColorPicker(QWidget):
@@ -100,7 +99,7 @@ class ColorPicker(QWidget):
         super().paintEvent(event)
         if self.selecting and not self.selection_rect.isNull():
             painter = QPainter(self.label.pixmap())
-            pen = QPen(QColor(0, 255, 0), 2, Qt.DashLine)
+            pen = QPen(QColor(0, 255, 0), 2, Qt.PenStyle.DashLine)
             painter.setPen(pen)
             painter.drawRect(self.selection_rect)
             self.label.update()
@@ -139,13 +138,26 @@ class ColorPicker(QWidget):
             return
 
         n_clusters = min(5, max(2, len(pixels) // 1000))
-        kmeans = KMeans(n_clusters=n_clusters, random_state=0, n_init="auto")
-        kmeans.fit(pixels)
+        
+        # Verwende OpenCV K-Means statt sklearn
+        pixels_float = np.float32(pixels)
+        criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 100, 0.2)
+        
+        # K-Means mit OpenCV
+        ret, labels, centers = cv2.kmeans(
+            pixels_float, 
+            n_clusters, 
+            None, 
+            criteria, 
+            10, 
+            cv2.KMEANS_RANDOM_CENTERS
+        )
 
-        labels, counts = np.unique(kmeans.labels_, return_counts=True)
+        # Finde dominante Farben basierend auf Cluster-Größe
+        unique_labels, counts = np.unique(labels.flatten(), return_counts=True)
         top_n = min(2, len(counts))
         top_clusters = np.argsort(counts)[::-1][:top_n]
-        dominant_colors = kmeans.cluster_centers_[top_clusters]
+        dominant_colors = centers[top_clusters]
         weights = counts[top_clusters]
 
         dominant_color = np.average(dominant_colors, axis=0, weights=weights).astype(int)
