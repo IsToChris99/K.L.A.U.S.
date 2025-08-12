@@ -6,7 +6,7 @@ from typing import Dict, Optional, Tuple
 import cv2
 import numpy as np
 from ids_peak import ids_peak, ids_peak_ipl_extension
-import config
+from config import (FRAME_RATE_TARGET, EXPOSURE_TIME, GAIN, BLACK_LEVEL, WHITE_BALANCE_AUTO)
 
 
 class IDS_Camera:
@@ -32,11 +32,11 @@ class IDS_Camera:
         
         # Store default values for runtime adjustment
         self._default_settings = {
-            "exposure_time": 2000.0,
-            "gain": 10.0,
-            "black_level": 10.0,
-            "frame_rate_target": 250.0,
-            "white_balance_auto": "Off"
+            "exposure_time": EXPOSURE_TIME,
+            "gain": GAIN,
+            "black_level": BLACK_LEVEL,
+            "frame_rate_target": FRAME_RATE_TARGET,
+            "white_balance_auto": WHITE_BALANCE_AUTO
         }
 
         self._initialize_camera()

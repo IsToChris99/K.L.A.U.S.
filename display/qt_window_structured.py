@@ -123,36 +123,39 @@ class KickerMainWindow(QMainWindow):
         
     def connect_signals(self):
         """Verbindet alle Button-Signale mit ihren Funktionen"""
-        
         # Visualization controls
         self.ball_only_btn.clicked.connect(lambda: self.event_handlers.set_visualization_mode(1))
         self.field_only_btn.clicked.connect(lambda: self.event_handlers.set_visualization_mode(2))
         self.combined_btn.clicked.connect(lambda: self.event_handlers.set_visualization_mode(3))
-        
+
         # Score controls
-        self.reset_score_btn.clicked.connect(self.event_handlers.reset_score_placeholder)
-        self.start_match_btn.clicked.connect(self.event_handlers.start_match_placeholder)
-        self.cancel_match_btn.clicked.connect(self.event_handlers.cancel_match_placeholder)
-        
+        self.reset_score_btn.clicked.connect(self.event_handlers.reset_score)
+
         # Manual score control buttons
-        self.team1_plus_btn.clicked.connect(self.event_handlers.team1_score_plus_placeholder)
-        self.team1_minus_btn.clicked.connect(self.event_handlers.team1_score_minus_placeholder)
-        self.team2_plus_btn.clicked.connect(self.event_handlers.team2_score_plus_placeholder)
-        self.team2_minus_btn.clicked.connect(self.event_handlers.team2_score_minus_placeholder)
-        
+        self.team1_plus_btn.clicked.connect(self.event_handlers.team1_score_plus)
+        self.team1_minus_btn.clicked.connect(self.event_handlers.team1_score_minus)
+        self.team2_plus_btn.clicked.connect(self.event_handlers.team2_score_plus)
+        self.team2_minus_btn.clicked.connect(self.event_handlers.team2_score_minus)
+
         # Goal limit controls
-        self.reset_goal_limit_btn.clicked.connect(self.event_handlers.reset_goal_limit_placeholder)
-        
+        if hasattr(self, 'default_goal_limit_btn'):
+            self.default_goal_limit_btn.clicked.connect(self.event_handlers.set_goal_limit_default)
+        if hasattr(self, 'infinity_goal_limit_btn'):
+            self.infinity_goal_limit_btn.clicked.connect(self.event_handlers.set_goal_limit_infinity)
+        if hasattr(self, 'goal_limit_input'):
+            self.goal_limit_input.valueChanged.connect(self.event_handlers.on_goal_limit_changed)
+
         # Settings tab buttons
         if hasattr(self, 'apply_settings_btn'):
             self.apply_settings_btn.clicked.connect(self.event_handlers.apply_settings)
         if hasattr(self, 'reset_settings_btn'):
             self.reset_settings_btn.clicked.connect(self.event_handlers.reset_settings)
-        
+
         # Processing mode toggle
         if hasattr(self, 'processing_mode_checkbox'):
             self.processing_mode_checkbox.toggled.connect(self.event_handlers.toggle_processing_mode)
-    
+      
+            
     def poll_results_queue(self):
         """Pollt die Ergebnis-Queue für neue Daten aus dem Verarbeitungsprozess - optimierte Version"""
         try:
@@ -181,9 +184,6 @@ class KickerMainWindow(QMainWindow):
                             self.player1_goals = new_score1
                             self.player2_goals = new_score2
                             self.update_score(f"{self.player1_goals}:{self.player2_goals}")
-                            
-                            if new_score1 > self.player1_goals or new_score2 > self.player2_goals:
-                                self.add_log_message("Goal detected automatically!")
                     
                     # Update FPS data from processing if available (throttled)
                     fps_data = result_package.get("fps_data")

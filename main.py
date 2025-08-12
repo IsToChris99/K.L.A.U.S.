@@ -36,18 +36,15 @@ class FieldWorkerProcess(mp.Process):
 
     def run(self):
         # Late imports safe for spawn
-        from detection.field_detector_markers import FieldDetector
-        import numpy as _np
-        import queue as _queue
 
         shm = shared_memory.SharedMemory(name=self.shm_name)
-        frame = _np.ndarray(self.shape, dtype=_np.dtype(self.dtype), buffer=shm.buf)
+        frame = np.ndarray(self.shape, dtype=np.dtype(self.dtype), buffer=shm.buf)
         self.detector = FieldDetector()
 
         while self.running_event.is_set():
             try:
                 seq = self.tick_queue.get(timeout=0.2)
-            except _queue.Empty:
+            except queue.Empty:
                 continue
 
             # Run calibration/detection on current shared frame
@@ -89,26 +86,24 @@ class BallWorkerProcess(mp.Process):
 
     def run(self):
         # Late imports safe for spawn
-        from detection.ball_detector import BallDetector
-        import numpy as _np
-        import queue as _queue
 
         shm = shared_memory.SharedMemory(name=self.shm_name)
-        frame = _np.ndarray(self.shape, dtype=_np.dtype(self.dtype), buffer=shm.buf)
+        frame = np.ndarray(self.shape, dtype=np.dtype(self.dtype), buffer=shm.buf)
         self.detector = BallDetector()
+        
 
         while self.running_event.is_set():
             # Drain field state queue (keep only latest)
             try:
                 while True:
                     self.latest_field = self.field_state_queue.get_nowait()
-            except _queue.Empty:
+            except queue.Empty:
                 pass
 
             # Wait for tick
             try:
                 seq = self.tick_queue.get(timeout=0.2)
-            except _queue.Empty:
+            except queue.Empty:
                 continue
 
             field_corners = self.latest_field.get('field_corners')
@@ -247,8 +242,7 @@ class ProcessingProcess(mp.Process):
 
                 # Preprocess frame once in parent process
                 preprocessing_start = time.time()
-                preprocessed_result = self.preprocessor.process_frame(raw_frame)
-                preprocessed_frame = preprocessed_result[0] if isinstance(preprocessed_result, tuple) else preprocessed_result
+                preprocessed_frame, _ = self.preprocessor.process_frame(raw_frame)
                 self.update_fps_tracker('preprocessing', preprocessing_start)
 
                 # Initialize shared memory and workers on first frame
@@ -334,12 +328,20 @@ class ProcessingProcess(mp.Process):
                     )
                     results['score'] = self.goal_scorer.get_score() if hasattr(self.goal_scorer, 'get_score') else {'player1': 0, 'player2': 0}
 
+                # Pull current score to keep UI synced with manual updates
+                current_score = None
+                if hasattr(self.goal_scorer, 'get_score'):
+                    try:
+                        current_score = self.goal_scorer.get_score()
+                    except Exception:
+                        current_score = None
+
                 # Package for UI
                 final_package = {
                     'display_frame': preprocessed_frame,
                     'ball_data': results.get('ball_data'),
                     'player_data': results.get('player_data'),
-                    'score': results.get('score', {'player1': 0, 'player2': 0}),
+                    'score': results.get('score', current_score if current_score is not None else {'player1': 0, 'player2': 0}),
                     'M_field': results.get('M_field', self.latest_M_field),
                     'fps_data': self.current_fps.copy(),
                     'processing_mode': 'GPU' if self.use_gpu_processing else 'CPU',
@@ -392,16 +394,38 @@ class ProcessingProcess(mp.Process):
             tracker['last_time'] = current_time
 
     def handle_command(self, command):
-        """Handle commands from the UI process"""
-        if command.get('type') == 'reset_score':
+        """Handle commands from the UI process"""        
+        if command.get('type') == 'toggle_processing_mode':
+            self.toggle_processing_mode()
+            
+        elif command.get('type') == 'reset_score':
             print("Resetting score...")
             if self.goal_scorer:
                 self.goal_scorer.reset_score()
-        elif command.get('type') == 'toggle_processing_mode':
-            self.toggle_processing_mode()
-        # Field calibration is now automatic - removed manual calibration commands
+        
+        elif command.get('type') == 'update_score':
+            idx = command.get('index')
+            amt = command.get('amount')
+            self.goal_scorer.update_score(idx, amt)
+       
+        elif command.get('type') == 'set_max_goals':
+            max_goals = command.get('max_goals')
+            is_inf = command.get('is_infinity', False)
+            self.goal_scorer.set_max_goals(max_goals, is_inf)
 
-        # Add more command types as needed
+        elif command.get('type') == 'set_infinity_goals':
+            self.goal_scorer.set_max_goals(1, True)
+
+        elif command.get('type') == 'update_settings':
+            self.ids_camera.set_frame_rate_target(command.get('frame_rate', 30.0))
+            self.ids_camera.set_exposure(command.get('exposure_time', 0.0))
+            self.ids_camera.set_gain(command.get('gain', 0.0))
+            self.ids_camera.set_black_level(command.get('black_level', 0.0))
+            self.ids_camera.set_white_balance_auto(command.get('white_balance_auto', "Continuous"))
+
+        elif command.get('type') == 'white_balance_once':
+            self.ids_camera.set_white_balance("Once")
+
 
     def toggle_processing_mode(self):
         """Toggle between CPU and GPU preprocessing"""
@@ -507,6 +531,7 @@ def main_gui():
     cam_thread.start()
     
     # 4. Erstelle das Hauptfenster und übergebe die Kommunikationsmittel
+    time.sleep(0.5)  # Kurze Pause, um sicherzustellen, dass der Thread gestartet ist
     window = KickerMainWindow(results_queue, command_queue, running_event)
     window.show()
 

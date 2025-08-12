@@ -7,10 +7,11 @@ from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, 
     QPushButton, QLabel, QFormLayout, QSpinBox, 
-    QDoubleSpinBox, QSlider, QComboBox
+    QDoubleSpinBox, QSlider, QComboBox, QCheckBox
 )
 
 from .clickable_video_label import ClickableVideoLabel
+from config import (FRAME_RATE_TARGET, EXPOSURE_TIME, GAIN, BLACK_LEVEL, WHITE_BALANCE_AUTO)
 
 
 class TrackingTab(QWidget):
@@ -43,6 +44,25 @@ class TrackingTab(QWidget):
         # Main layout assembly
         main_layout.addWidget(score_group)
         main_layout.addLayout(content_layout, stretch=4)
+
+class StatisticsTab(QWidget):
+    """Tab für die Statistiken"""
+
+    def __init__(self, parent_window):
+        super().__init__()
+        self.parent_window = parent_window
+        self.setup_ui()
+
+    def setup_ui(self):
+        """Setup the statistics tab UI"""
+        main_layout = QVBoxLayout(self)
+        
+        
+
+        # Add widgets for statistics here
+        # Example: main_layout.addWidget(QLabel("Statistics will be displayed here"))
+
+        self.setLayout(main_layout)
 
 
 class CalibrationTab(QWidget):
@@ -277,67 +297,75 @@ class SettingsTab(QWidget):
                 color: white;
             }
         """)
-        
         layout = QFormLayout(camera_group)
         layout.setSpacing(15)
-        
-        # Exposure Time
-        self.parent_window.exposure_time_input = QDoubleSpinBox()
-        self.parent_window.exposure_time_input.setRange(0.1, 1000.0)
-        self.parent_window.exposure_time_input.setValue(10.0)
-        self.parent_window.exposure_time_input.setSuffix(" ms")
-        self.parent_window.exposure_time_input.setDecimals(1)
-        layout.addRow("Exposure Time:", self.parent_window.exposure_time_input)
-        
-        # Gain
-        self.parent_window.gain_input = QDoubleSpinBox()
-        self.parent_window.gain_input.setRange(0.0, 40.0)
-        self.parent_window.gain_input.setValue(1.0)
-        self.parent_window.gain_input.setSuffix(" dB")
-        self.parent_window.gain_input.setDecimals(1)
-        layout.addRow("Gain:", self.parent_window.gain_input)
-        
-        # White Balance Red
-        self.parent_window.wb_red_input = QDoubleSpinBox()
-        self.parent_window.wb_red_input.setRange(0.5, 3.0)
-        self.parent_window.wb_red_input.setValue(1.0)
-        self.parent_window.wb_red_input.setDecimals(2)
-        layout.addRow("White Balance Red:", self.parent_window.wb_red_input)
-        
-        # White Balance Blue
-        self.parent_window.wb_blue_input = QDoubleSpinBox()
-        self.parent_window.wb_blue_input.setRange(0.5, 3.0)
-        self.parent_window.wb_blue_input.setValue(1.0)
-        self.parent_window.wb_blue_input.setDecimals(2)
-        layout.addRow("White Balance Blue:", self.parent_window.wb_blue_input)
-        
-        # Brightness
-        self.parent_window.brightness_input = QSpinBox()
-        self.parent_window.brightness_input.setRange(-100, 100)
-        self.parent_window.brightness_input.setValue(0)
-        layout.addRow("Brightness:", self.parent_window.brightness_input)
-        
-        # Contrast
-        self.parent_window.contrast_input = QDoubleSpinBox()
-        self.parent_window.contrast_input.setRange(0.1, 3.0)
-        self.parent_window.contrast_input.setValue(1.0)
-        self.parent_window.contrast_input.setDecimals(2)
-        layout.addRow("Contrast:", self.parent_window.contrast_input)
-        
-        # Gamma
-        self.parent_window.gamma_input = QDoubleSpinBox()
-        self.parent_window.gamma_input.setRange(0.1, 3.0)
-        self.parent_window.gamma_input.setValue(1.0)
-        self.parent_window.gamma_input.setDecimals(2)
-        layout.addRow("Gamma:", self.parent_window.gamma_input)
-        
-        # Frame Rate
+
+        # ---- Werte aus config übernehmen ----
+        # Frame Rate (bleibt SpinBox da es Integer-Werte sind)
         self.parent_window.framerate_input = QSpinBox()
         self.parent_window.framerate_input.setRange(1, 250)
-        self.parent_window.framerate_input.setValue(30)
+        self.parent_window.framerate_input.setValue(FRAME_RATE_TARGET)
         self.parent_window.framerate_input.setSuffix(" fps")
         layout.addRow("Target Frame Rate:", self.parent_window.framerate_input)
+
+        # Exposure Time - jetzt als Slider
+        self.parent_window.exposure_time_input = QSlider(Qt.Orientation.Horizontal)
+        self.parent_window.exposure_time_input.setRange(1000, 40000)  # 100.0 bis 4000.0 * 10 für bessere Auflösung
+        self.parent_window.exposure_time_input.setValue(int(EXPOSURE_TIME * 10))
+        self.parent_window.exposure_time_label = QLabel(f"{EXPOSURE_TIME} ms")
+        self.parent_window.exposure_time_input.valueChanged.connect(
+            lambda v: self.parent_window.exposure_time_label.setText(f"{v/10:.1f} ms")
+        )
         
+        exposure_layout = QHBoxLayout()
+        exposure_layout.addWidget(self.parent_window.exposure_time_input)
+        exposure_layout.addWidget(self.parent_window.exposure_time_label)
+        layout.addRow("Exposure Time:", exposure_layout)
+
+        # Gain - jetzt als Slider
+        self.parent_window.gain_input = QSlider(Qt.Orientation.Horizontal)
+        self.parent_window.gain_input.setRange(0, 400)  # 0.0 bis 40.0 * 10 für bessere Auflösung
+        self.parent_window.gain_input.setValue(int(GAIN * 10))
+        self.parent_window.gain_label = QLabel(f"{GAIN} dB")
+        self.parent_window.gain_input.valueChanged.connect(
+            lambda v: self.parent_window.gain_label.setText(f"{v/10:.1f} dB")
+        )
+        
+        gain_layout = QHBoxLayout()
+        gain_layout.addWidget(self.parent_window.gain_input)
+        gain_layout.addWidget(self.parent_window.gain_label)
+        layout.addRow("Gain:", gain_layout)
+
+        # Black Level - jetzt als Slider
+        self.parent_window.black_level_input = QSlider(Qt.Orientation.Horizontal)
+        self.parent_window.black_level_input.setRange(0, 200)  # 0.0 bis 20.0 * 10 für bessere Auflösung
+        self.parent_window.black_level_input.setValue(int(BLACK_LEVEL * 10))
+        self.parent_window.black_level_label = QLabel(f"{BLACK_LEVEL}")
+        self.parent_window.black_level_input.valueChanged.connect(
+            lambda v: self.parent_window.black_level_label.setText(f"{v/10:.1f}")
+        )
+        
+        black_level_layout = QHBoxLayout()
+        black_level_layout.addWidget(self.parent_window.black_level_input)
+        black_level_layout.addWidget(self.parent_window.black_level_label)
+        layout.addRow("Black Level:", black_level_layout)
+
+        # White Balance Toggle Off and Automatic - jetzt mit "Once" Button rechts neben Checkbox
+        self.parent_window.wb_auto_checkbox = QCheckBox("Automatic")
+        wb = WHITE_BALANCE_AUTO
+        if wb == "Off" or wb == "Once":
+            self.parent_window.wb_auto_checkbox.setChecked(False)
+        elif wb == "Continuous":
+            self.parent_window.wb_auto_checkbox.setChecked(True)
+        
+        self.parent_window.wb_one_time_checkbox = QPushButton("Once")
+        
+        wb_layout = QHBoxLayout()
+        wb_layout.addWidget(self.parent_window.wb_auto_checkbox)
+        wb_layout.addWidget(self.parent_window.wb_one_time_checkbox)
+        wb_layout.addStretch()  # Fügt Freiraum rechts hinzu
+        layout.addRow("White Balance:", wb_layout)
+
         return camera_group
     
     def create_processing_settings_group(self):

@@ -15,7 +15,7 @@ class GoalScorer:
     def __init__(self):
         self.player1_goals = 0
         self.player2_goals = 0
-        self.max_goals = 2
+        self.max_goals = 10
         
         self.player1_goal_types = ['left']
         self.player2_goal_types = ['right']
@@ -313,7 +313,7 @@ class GoalScorer:
         else:
             print("Invalid player index")
 
-    def set_max_goals(self, max_goals=2, is_infinity=False):
+    def set_max_goals(self, max_goals=10, is_infinity=False):
         """Sets the maximum goals for both players"""
         if is_infinity:
             max_goals = 9999
