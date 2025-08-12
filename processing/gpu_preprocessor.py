@@ -50,6 +50,7 @@ class GPUPreprocessor:
         self.demosaic_shader = None  # Pass 1: Bayer -> RGB
         self.undistort_shader = None # Pass 2: RGB -> RGB undistorted (same size)
         self.resize_shader = None    # Pass 3: RGB undistorted -> RGB resized (target size)
+        self.perspective_shader = None # Alternative Pass 3: RGB undistorted -> perspective transformed (same size)
         
         self.vao = None
         self.vbo = None
@@ -59,11 +60,13 @@ class GPUPreprocessor:
         self.rgb_texture_id = None        # Intermediate: Demosaiced RGB (full size)
         self.undistorted_texture_id = None # Intermediate: Undistorted RGB (full size)
         self.output_texture_id = None     # Output: Final resized
+        self.perspective_texture_id = None # Alternative output: Perspective transformed (same size)
         
         # Framebuffers for each pass
         self.demosaic_fbo = None          # For Pass 1: Bayer -> RGB
         self.undistort_fbo = None         # For Pass 2: RGB -> Undistorted
         self.resize_fbo = None            # For Pass 3: Undistorted -> Resized
+        self.perspective_fbo = None       # Alternative Pass 3: Undistorted -> Perspective transformed
         
         # Remap textures for undistortion (like OpenCV's remap)
         self.map1_texture_id = None
@@ -180,6 +183,7 @@ class GPUPreprocessor:
             demosaic_fragment_source = self._load_shader_file('demosaic_fragment.glsl')
             undistort_fragment_source = self._load_shader_file('undistort_fragment.glsl')
             resize_fragment_source = self._load_shader_file('resize_fragment.glsl')
+            perspective_fragment_source = self._load_shader_file('perspective_fragment.glsl')
             
             # Compile Pass 1 shaders (Demosaicing)
             vs1 = pyglet.graphics.shader.Shader(vertex_shader_source, 'vertex')
@@ -196,7 +200,12 @@ class GPUPreprocessor:
             fs3 = pyglet.graphics.shader.Shader(resize_fragment_source, 'fragment')
             self.resize_shader = pyglet.graphics.shader.ShaderProgram(vs3, fs3)
             
-            print("Three-pass shaders loaded and compiled successfully")
+            # Compile Alternative Pass 3 shaders (Perspective)
+            vs4 = pyglet.graphics.shader.Shader(vertex_shader_source, 'vertex')
+            fs4 = pyglet.graphics.shader.Shader(perspective_fragment_source, 'fragment')
+            self.perspective_shader = pyglet.graphics.shader.ShaderProgram(vs4, fs4)
+            
+            print("Four-pass shaders loaded and compiled successfully")
             
         except Exception as e:
             print(f"Failed to load/compile multi-pass shaders: {e}")
@@ -295,6 +304,27 @@ class GPUPreprocessor:
         
         if glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE:
             raise Exception("Resize framebuffer is not complete!")
+
+        # --- ALTERNATIVE PASS 3 TEXTURES & FRAMEBUFFER (RGB Undistorted -> RGB Perspective Transformed) ---
+
+        # Perspective output texture (same size as input)
+        self.perspective_texture_id = GLuint()
+        glGenTextures(1, self.perspective_texture_id)
+        glBindTexture(GL_TEXTURE_2D, self.perspective_texture_id)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB8, self.bayer_width, self.bayer_height, 0, GL_RGB, GL_UNSIGNED_BYTE, None)
+
+        # Framebuffer for Alternative Pass 3 (Perspective)
+        self.perspective_fbo = GLuint()
+        glGenFramebuffers(1, self.perspective_fbo)
+        glBindFramebuffer(GL_FRAMEBUFFER, self.perspective_fbo)
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, self.perspective_texture_id, 0)
+        
+        if glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE:
+            raise Exception("Perspective framebuffer is not complete!")
         
         # Reset to default framebuffer
         glBindFramebuffer(GL_FRAMEBUFFER, 0)
@@ -308,7 +338,7 @@ class GPUPreprocessor:
         # Initialize Pixel Buffer Objects for async readback
         self._initialize_pbos()
         
-        print("Three-pass OpenGL objects initialized successfully")
+        print("Four-pass OpenGL objects initialized successfully")
         glDisable(GL_DITHER)
         
         # Initialize Pixel Buffer Objects for async readback
@@ -638,6 +668,189 @@ class GPUPreprocessor:
             self.use_cpu_fallback = True
             # Fallback to CPU processing using the dedicated process_frame method
             return self.cpu_preprocessor.process_frame(bayer_frame)
+
+    def process_display_frame(self, bayer_frame, perspective_transform_matrix=None):
+        """
+        Processes a single raw Bayer frame for display purposes on the GPU.
+        Pass 1: Bayer -> RGB (Demosaicing)  
+        Pass 2: RGB -> RGB Undistorted (same size)
+        Pass 3: RGB Undistorted -> RGB Perspective Transformed (same size)
+        
+        :param bayer_frame: NumPy Array (height, width) of the raw Bayer frame.
+        :param perspective_transform_matrix: 3x3 perspective transformation matrix (optional).
+        :return: Processed NumPy Array (bayer_height, bayer_width, 3) in BGR format.
+        """
+        # Check if we should use CPU fallback
+        if self.use_cpu_fallback:
+            return self.cpu_preprocessor.process_display_frame(bayer_frame, perspective_transform_matrix)
+
+        # Check if initialization is needed
+        if not self.initialized:
+            return self.cpu_preprocessor.process_display_frame(bayer_frame, perspective_transform_matrix)
+            
+        # Check if input is a color frame (video) - use CPU fallback for now
+        if len(bayer_frame.shape) == 3 and bayer_frame.shape[2] == 3:
+            return self.cpu_preprocessor.process_display_frame(bayer_frame, perspective_transform_matrix)
+            
+        try:
+            # --- PASS 1: BAYER -> RGB (DEMOSAICING) ---
+            
+            # 1. Upload Bayer frame to GPU texture
+            glBindTexture(GL_TEXTURE_2D, self.bayer_texture_id)
+            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, self.bayer_width, self.bayer_height, GL_RED, GL_UNSIGNED_BYTE, bayer_frame.ctypes.data)
+
+            # 2. Render Pass 1: Demosaicing
+            glBindFramebuffer(GL_FRAMEBUFFER, self.demosaic_fbo)
+            glViewport(0, 0, self.bayer_width, self.bayer_height)  # Full Bayer size
+            
+            self.demosaic_shader.use()
+            
+            # Bind Bayer texture
+            glActiveTexture(GL_TEXTURE0)
+            glBindTexture(GL_TEXTURE_2D, self.bayer_texture_id)
+            
+            # Set uniforms for Pass 1
+            try:
+                program_id = self.demosaic_shader.id if hasattr(self.demosaic_shader, 'id') else self.demosaic_shader._program_id
+                
+                # Set texture sampler
+                bayer_texture_location = glGetUniformLocation(program_id, b"bayerTexture")
+                if bayer_texture_location != -1:
+                    glUniform1i(bayer_texture_location, 0)  # Texture unit 0
+                
+                # Set size uniform
+                bayer_size_location = glGetUniformLocation(program_id, b"bayerSize")
+                if bayer_size_location != -1:
+                    glUniform2f(bayer_size_location, float(self.bayer_width), float(self.bayer_height))
+                    
+            except Exception as e:
+                print(f"Warning: Could not set Pass 1 uniform variables: {e}")
+            
+            # Render to RGB texture
+            glBindVertexArray(self.vao)
+            glDrawArrays(GL_TRIANGLE_FAN, 0, 4)
+
+            # --- PASS 2: RGB -> RGB UNDISTORTED (SAME SIZE) ---
+            
+            # 3. Render Pass 2: Undistortion only
+            glBindFramebuffer(GL_FRAMEBUFFER, self.undistort_fbo)
+            glViewport(0, 0, self.bayer_width, self.bayer_height)  # Same size as input
+            
+            self.undistort_shader.use()
+            
+            # Bind RGB texture from Pass 1
+            glActiveTexture(GL_TEXTURE0)
+            glBindTexture(GL_TEXTURE_2D, self.rgb_texture_id)
+            
+            # Bind remap textures  
+            glActiveTexture(GL_TEXTURE1)
+            glBindTexture(GL_TEXTURE_2D, self.map1_texture_id)
+            
+            glActiveTexture(GL_TEXTURE2)
+            glBindTexture(GL_TEXTURE_2D, self.map2_texture_id)
+            
+            # Set uniforms for Pass 2
+            try:
+                program_id = self.undistort_shader.id if hasattr(self.undistort_shader, 'id') else self.undistort_shader._program_id
+                
+                # Set texture samplers
+                rgb_texture_location = glGetUniformLocation(program_id, b"rgbTexture")
+                map1_texture_location = glGetUniformLocation(program_id, b"map1Texture") 
+                map2_texture_location = glGetUniformLocation(program_id, b"map2Texture")
+                
+                if rgb_texture_location != -1:
+                    glUniform1i(rgb_texture_location, 0)  # Texture unit 0
+                if map1_texture_location != -1:
+                    glUniform1i(map1_texture_location, 1)   # Texture unit 1
+                if map2_texture_location != -1:
+                    glUniform1i(map2_texture_location, 2)   # Texture unit 2
+                
+                # Set size uniforms (only rgbSize for Pass 2)
+                rgb_size_location = glGetUniformLocation(program_id, b"rgbSize")
+                
+                if rgb_size_location != -1:
+                    glUniform2f(rgb_size_location, float(self.bayer_width), float(self.bayer_height))
+                    
+            except Exception as e:
+                print(f"Warning: Could not set Pass 2 uniform variables: {e}")
+            
+            # Render to undistorted texture
+            glBindVertexArray(self.vao)
+            glDrawArrays(GL_TRIANGLE_FAN, 0, 4)
+
+            # --- PASS 3: RGB UNDISTORTED -> RGB PERSPECTIVE TRANSFORMED ---
+            
+            # 4. Render Pass 3: Perspective Transformation
+            glBindFramebuffer(GL_FRAMEBUFFER, self.perspective_fbo)
+            glViewport(0, 0, self.bayer_width, self.bayer_height)  # Same size as input
+            
+            self.perspective_shader.use()
+            
+            # Bind undistorted texture from Pass 2
+            glActiveTexture(GL_TEXTURE0)
+            glBindTexture(GL_TEXTURE_2D, self.undistorted_texture_id)
+            
+            # Set uniforms for Pass 3
+            try:
+                program_id = self.perspective_shader.id if hasattr(self.perspective_shader, 'id') else self.perspective_shader._program_id
+                
+                # Set texture sampler
+                undistorted_texture_location = glGetUniformLocation(program_id, b"undistortedTexture")
+                
+                if undistorted_texture_location != -1:
+                    glUniform1i(undistorted_texture_location, 0)  # Texture unit 0
+                
+                # Set size uniform
+                undistorted_size_location = glGetUniformLocation(program_id, b"undistortedSize")
+                
+                if undistorted_size_location != -1:
+                    glUniform2f(undistorted_size_location, float(self.bayer_width), float(self.bayer_height))
+                
+                # Set perspective transformation matrix
+                if perspective_transform_matrix is not None:
+                    perspective_matrix_location = glGetUniformLocation(program_id, b"perspectiveMatrix")
+                    if perspective_matrix_location != -1:
+                        # Convert numpy array to 3x3 matrix and flatten for OpenGL
+                        matrix_flat = perspective_transform_matrix.astype(np.float32).flatten()
+                        matrix_ptr = matrix_flat.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
+                        glUniformMatrix3fv(perspective_matrix_location, 1, GL_FALSE, matrix_ptr)
+                else:
+                    # Use identity matrix if no transformation is provided
+                    perspective_matrix_location = glGetUniformLocation(program_id, b"perspectiveMatrix")
+                    if perspective_matrix_location != -1:
+                        identity_matrix = np.eye(3, dtype=np.float32).flatten()
+                        matrix_ptr = identity_matrix.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
+                        glUniformMatrix3fv(perspective_matrix_location, 1, GL_FALSE, matrix_ptr)
+                    
+            except Exception as e:
+                print(f"Warning: Could not set Pass 3 uniform variables: {e}")
+            
+            # Render to perspective transformed texture
+            glBindVertexArray(self.vao)
+            glDrawArrays(GL_TRIANGLE_FAN, 0, 4)
+
+            # --- READBACK FINAL RESULT ---
+            
+            # Prepare output buffer for full size frame
+            buffer_size = self.bayer_width * self.bayer_height * 3
+            output_buffer = (GLubyte * buffer_size)()
+            output_frame = np.empty((self.bayer_height, self.bayer_width, 3), dtype=np.uint8)
+            
+            # Synchronous readback (perspective framebuffer is bound)
+            glReadPixels(0, 0, self.bayer_width, self.bayer_height, GL_BGR, GL_UNSIGNED_BYTE, output_buffer)
+            buffer_data = np.frombuffer(output_buffer, dtype=np.uint8)
+            frame_data = buffer_data.reshape((self.bayer_height, self.bayer_width, 3))
+            output_frame[:] = frame_data  # No flipud needed - handled in shader
+            
+            return output_frame
+            
+        except Exception as e:
+            print(f"GPU display frame processing failed, falling back to CPU: {e}")
+            import traceback
+            traceback.print_exc()
+            self.use_cpu_fallback = True
+            # Fallback to CPU processing using the dedicated process_display_frame method
+            return self.cpu_preprocessor.process_display_frame(bayer_frame, perspective_transform_matrix)
 
     def close(self):
         """Releases OpenGL resources and window."""

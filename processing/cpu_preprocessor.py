@@ -108,3 +108,15 @@ class CPUPreprocessor:
         # Resize to target size
         resized_frame = cv2.resize(undist_frame, (self.target_width, self.target_height))
         return resized_frame, undist_frame
+
+    def process_display_frame(self, bayer_frame, perspective_transform_matrix):
+        """Processes a single Bayer frame for display purposes.
+        Returns the undistorted RGB frame (with perspective distortion)in original resolution."""
+        rgb_frame = cv2.cvtColor(bayer_frame, cv2.COLOR_BayerRG2RGB)
+        # Apply undistortion
+        undist_frame = self.undistort_frame(rgb_frame)
+
+        if perspective_transform_matrix is not None:
+            undist_frame = cv2.warpPerspective(undist_frame, perspective_transform_matrix, (undist_frame.shape[1], undist_frame.shape[0]))
+
+        return undist_frame
