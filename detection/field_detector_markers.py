@@ -71,8 +71,7 @@ class FieldDetector:
 
         if len(contours) != 4:
             self.counter += 1
-            if self.counter % 50 == 0:  # Reduzierte Debug-Ausgabe
-                print(f"\rDetected {len(contours)} contours, expected 4. Counter: {self.counter}", end="")
+            print(f"\rDetected {len(contours)} contours, expected 4. Counter: {self.counter}", end="")
             return None
 
         # Optimierte weiße Pixel-Extraktion
@@ -95,6 +94,12 @@ class FieldDetector:
 
         # Bottom-left: maximale Differenz von y-x
         bottom_left = np.array([x_coords[np.argmax(diff_coords)], y_coords[np.argmax(diff_coords)]])
+
+        # Überprüfe, ob die Ecken zu nahe beieinander liegen
+        if min([np.linalg.norm(top_left - top_right), np.linalg.norm(bottom_left - bottom_right)]) < 50 or \
+           min([np.linalg.norm(top_left - bottom_left), np.linalg.norm(top_right - bottom_right)]) < 50:
+            print("\nDetected corners are too close together, skipping field detection.")
+            return None
         
         # Die vier Eckpunkte als field_corners setzen
         field_corners = np.array([top_left, top_right, bottom_right, bottom_left])
