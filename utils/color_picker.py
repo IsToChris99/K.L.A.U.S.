@@ -11,21 +11,12 @@ from PySide6.QtCore import Qt, QRect
 
 
 class ColorPicker(QWidget):
-    def __init__(self):
+    def __init__(self, frame, scale_factor=0.3):
         super().__init__()
-        self.setWindowTitle("Farbpicker (Mehrere Picks, Team 1 & 2)")
+        self.setWindowTitle("Farbpicker (Live-Bild)")
 
-        self.image_path = QFileDialog.getOpenFileName(self, "Bild wählen")[0]
-        if not self.image_path:
-            print("Kein Bild ausgewählt.")
-            sys.exit()
-
-        self.original_image = cv2.imread(self.image_path)
-        if self.original_image is None:
-            print("Bild konnte nicht geladen werden.")
-            sys.exit()
-
-        self.scale_factor = 0.3
+        self.scale_factor = scale_factor
+        self.original_image = frame
         self.display_image = cv2.resize(self.original_image, (0, 0), fx=self.scale_factor, fy=self.scale_factor)
 
         # Farben je Team speichern
@@ -250,10 +241,3 @@ class ColorPicker(QWidget):
         with open(filepath, "w") as f:
             json.dump(config, f, indent=2)
         print(f"Gespeichert als {filepath}")
-
-
-if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    picker = ColorPicker()
-    picker.show()
-    sys.exit(app.exec())

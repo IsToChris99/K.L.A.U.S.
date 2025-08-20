@@ -3,12 +3,15 @@ import numpy as np
 import time
 from threading import Thread, Lock
 from queue import Queue, LifoQueue, Empty
+from PySide6.QtWidgets import QApplication
+import sys
 
 # Local imports
 from detection.ball_detector import BallDetector
 from detection.field_detector_markers import FieldDetector
 from analysis.goal_scorer import GoalScorer
 from detection.player_detector import PlayerDetector
+from utils.color_picker import ColorPicker
 from input.ids_camera import IDS_Camera
 from processing.cpu_preprocessor import CPUPreprocessor
 from processing.gpu_preprocessor import GPUPreprocessor
@@ -31,10 +34,11 @@ class CombinedTracker:
         self.field_detector = FieldDetector()
         self.goal_scorer = GoalScorer()
         self.player_detector = PlayerDetector()
+        self.color_picker = ColorPicker(self)
 
         self.player_result = None
         self.player_thread = None
-        
+
         # Calibration mode - only activate on key press
         self.calibration_mode = True
         self.calibration_requested = True
@@ -236,6 +240,14 @@ class CombinedTracker:
                     'team2': boxes_t2
                 }
 
+    def color_picker_thread(self):
+        """Thread für den ColorPicker."""
+        app = QApplication(sys.argv)  # QApplication nur einmal erstellen
+        with self.result_lock:
+            frame = self.current_frame.copy() if self.current_frame is not None else np.zeros((480, 640, 3), dtype=np.uint8)
+        picker = ColorPicker(frame)  # Übergabe des aktuellen Frames
+        picker.show()
+        app.exec_()
 
     def draw_player_visualization(self, frame):
         with self.result_lock:
@@ -421,6 +433,10 @@ class CombinedTracker:
             self.player_thread = Thread(target=self.player_tracking_thread, daemon=True)
             self.player_thread.start()
 
+        if self.visualization_mode in [self.COMBINED]: 
+            self.color_thread = Thread(target=self.color_picker_thread, daemon=True)
+            self.color_thread.start()
+
     def stop_threads(self):
         """Stops the tracking threads"""
         self.running = False
@@ -443,6 +459,9 @@ class CombinedTracker:
 
         if self.player_thread and self.player_thread.is_alive():
             self.player_thread.join(timeout=1.0)
+
+        if self.color_thread and self.color_thread.is_alive():
+            self.color_thread.join(timeout=1.0)
     
     def toggle_processing_mode(self):
         """Toggles between CPU and GPU processing"""
