@@ -169,7 +169,7 @@ class CombinedTracker:
                 )
 
                 # Calculate ball speed using the imported function
-                fps = self.stream.fps if hasattr(self.stream, 'fps') else 30.0
+                fps = config.FRAME_RATE_TARGET
                 self.ball_speed, self.last_ball_position = calculate_ball_speed(
                     ball_position,
                     self.last_ball_position,
