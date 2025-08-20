@@ -80,12 +80,12 @@ class ColorPicker(QWidget):
 
     def start_selection(self, event):
         self.selecting = True
-        self.start_point = event.pos()
+        self.start_point = event.position().toPoint()
         self.selection_rect = QRect()
 
     def update_selection(self, event):
         if self.selecting:
-            self.selection_rect = QRect(self.start_point, event.pos()).normalized()
+            self.selection_rect = QRect(self.start_point, event.position().toPoint()).normalized()
             self.update()
 
     def finish_selection(self, event):
@@ -98,11 +98,14 @@ class ColorPicker(QWidget):
     def paintEvent(self, event):
         super().paintEvent(event)
         if self.selecting and not self.selection_rect.isNull():
-            painter = QPainter(self.label.pixmap())
+            # Erstelle eine Kopie des Pixmaps zum Zeichnen
+            pixmap = self.label.pixmap().copy()
+            painter = QPainter(pixmap)
             pen = QPen(QColor(0, 255, 0), 2, Qt.PenStyle.DashLine)
             painter.setPen(pen)
             painter.drawRect(self.selection_rect)
-            self.label.update()
+            painter.end()  # Wichtig: Painter beenden bevor das Pixmap verwendet wird
+            self.label.setPixmap(pixmap)
 
     def process_roi(self):
         x = int(self.selection_rect.x() / self.scale_factor)
@@ -253,4 +256,4 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     picker = ColorPicker()
     picker.show()
-    sys.exit(app.exec_())
+    sys.exit(app.exec())

@@ -224,7 +224,12 @@ class CombinedTracker:
             except Empty:
                 continue
 
-            boxes_t1, boxes_t2 = self.player_detector.detect_players(frame)
+            # Get field corners safely, use empty array if field_data is None or not calibrated
+            field_corners = np.array([])
+            if self.field_data is not None and self.field_data.get('field_corners') is not None:
+                field_corners = self.field_data['field_corners']
+
+            boxes_t1, boxes_t2 = self.player_detector.detect_players(frame, field_corners)
             with self.result_lock:
                 self.player_result = {
                     'team1': boxes_t1,

@@ -4,7 +4,7 @@ import json
 import os
 
 class PlayerDetector:
-    def __init__(self, color_config_path=None, field_calibration_config_path=None):
+    def __init__(self, color_config_path=None):
         # Farben laden
         if color_config_path is None:
             color_config_path = os.path.join(os.path.dirname(__file__), "colors.json")
@@ -14,13 +14,13 @@ class PlayerDetector:
         self.team1_ranges = data.get("team1", {}).get("ranges", [])
         self.team2_ranges = data.get("team2", {}).get("ranges", [])
 
-        # Feld-Ecken aus Config laden
-        if field_calibration_config_path is None:
-            field_calibration_config_path = os.path.join(os.path.dirname(__file__), "field_calibration.json")
+        # # Feld-Ecken aus Config laden
+        # if field_calibration_config_path is None:
+        #     field_calibration_config_path = os.path.join(os.path.dirname(__file__), "field_calibration.json")
         
-        with open(field_calibration_config_path, "r") as f:
-            field_data = json.load(f)
-        self.field_corners = np.array(field_data.get("field_corners", []), dtype=np.int32)
+        # with open(field_calibration_config_path, "r") as f:
+        #     field_data = json.load(f)
+        # self.field_corners = np.array(field_data.get("field_corners", []), dtype=np.int32)
 
     def non_max_suppression_fast(self, boxes, overlap_thresh=0.4):
         if not boxes:
@@ -64,17 +64,17 @@ class PlayerDetector:
         mask = cv2.dilate(mask, kernel, iterations=1)
         return mask
 
-    def detect_players(self, frame):
+    def detect_players(self, frame, field_corners):
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
 
         # Maske aus gespeicherten Feld-Ecken erstellen mit % Freiraum
-        if self.field_corners.size > 0:
+        if field_corners.size > 0:
             # Mittelpunkt des Feldes berechnen
-            center = np.mean(self.field_corners, axis=0)
+            center = np.mean(field_corners, axis=0)
             expanded_corners = []
-            for corner in self.field_corners:
+            for corner in field_corners:
                 vector = corner - center
-                expanded_corner = center + vector * 1.20  # % anpassen
+                expanded_corner = center + vector * 1.0  # % anpassen
                 expanded_corners.append(expanded_corner)
             expanded_corners = np.array(expanded_corners, dtype=np.int32)
 
