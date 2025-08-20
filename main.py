@@ -11,7 +11,7 @@ from PySide6.QtWidgets import QApplication
 # Lokale Imports
 from detection.ball_detector import BallDetector
 from detection.field_detector_markers import FieldDetector  # Verwende markers Version
-#from detection.player_detector import PlayerDetector
+from detection.player_detector import PlayerDetector
 from analysis.goal_scorer import GoalScorer
 from input.ids_camera_sync import IDS_Camera  # Verwende synchrone Version
 from processing.cpu_preprocessor import CPUPreprocessor
@@ -150,8 +150,6 @@ class PlayerWorkerProcess(mp.Process):
 
     def run(self):
         # Late imports safe for spawn
-        from detection.player_detector import PlayerDetector
-
         shm = shared_memory.SharedMemory(name=self.shm_name)
         frame = np.ndarray(self.shape, dtype=np.dtype(self.dtype), buffer=shm.buf)
         self.detector = PlayerDetector(self.color_config_path)

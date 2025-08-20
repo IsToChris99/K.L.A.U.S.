@@ -2,17 +2,21 @@ import cv2
 import numpy as np
 import json
 import os
+import time
 
 class PlayerDetector:
     def __init__(self, color_config_path=None):
-        # Farben laden
+        # Pfad speichern für späteres Neuladen
         if color_config_path is None:
             color_config_path = os.path.join(os.path.dirname(__file__), "colors.json")
+        self.color_config_path = color_config_path
         
-        with open(color_config_path, "r") as f:
-            data = json.load(f)
-        self.team1_ranges = data.get("team1", {}).get("ranges", [])
-        self.team2_ranges = data.get("team2", {}).get("ranges", [])
+        # Farben laden
+        self.load_colors()
+        
+        # Zeitstempel der letzten Änderung der Datei speichern
+        self.last_modified = 0
+        self.auto_reload = True  # Automatisches Neuladen aktiviert
 
         # # Feld-Ecken aus Config laden
         # if field_calibration_config_path is None:
@@ -21,6 +25,36 @@ class PlayerDetector:
         # with open(field_calibration_config_path, "r") as f:
         #     field_data = json.load(f)
         # self.field_corners = np.array(field_data.get("field_corners", []), dtype=np.int32)
+    
+    def load_colors(self):
+        """Lädt die Farbkonfiguration aus der JSON-Datei"""
+        try:
+            with open(self.color_config_path, "r") as f:
+                data = json.load(f)
+            self.team1_ranges = data.get("team1", {}).get("ranges", [])
+            self.team2_ranges = data.get("team2", {}).get("ranges", [])
+            
+            # Zeitstempel der letzten Änderung aktualisieren
+            self.last_modified = os.path.getmtime(self.color_config_path)
+            
+            print(f"Farben erfolgreich geladen: Team1={len(self.team1_ranges)} Bereiche, Team2={len(self.team2_ranges)} Bereiche")
+        except Exception as e:
+            print(f"Fehler beim Laden der Farben: {e}")
+            self.team1_ranges = []
+            self.team2_ranges = []
+    
+    def check_and_reload_colors(self):
+        """Prüft ob die colors.json Datei geändert wurde und lädt sie neu"""
+        if not self.auto_reload:
+            return
+            
+        try:
+            current_modified = os.path.getmtime(self.color_config_path)
+            if current_modified > self.last_modified:
+                print("colors.json wurde geändert - lade Farben neu...")
+                self.load_colors()
+        except Exception as e:
+            print(f"Fehler beim Prüfen der Datei: {e}")
 
     def non_max_suppression_fast(self, boxes, overlap_thresh=0.4):
         if not boxes:
@@ -65,6 +99,9 @@ class PlayerDetector:
         return mask
 
     def detect_players(self, frame, field_corners):
+        # Prüfe automatisch auf Änderungen der colors.json
+        self.check_and_reload_colors()
+        
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
 
         # Maske aus gespeicherten Feld-Ecken erstellen mit % Freiraum

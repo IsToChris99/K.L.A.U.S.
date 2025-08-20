@@ -15,7 +15,7 @@ from utils.color_picker import ColorPicker
 from input.ids_camera import IDS_Camera
 from processing.cpu_preprocessor import CPUPreprocessor
 from processing.gpu_preprocessor import GPUPreprocessor
-from analysis.ball_speed import BallSpeed
+from analysis.ball_speed import calculate_ball_speed
 import config
 
 # ================== COMBINED TRACKER ==================
@@ -34,7 +34,6 @@ class CombinedTracker:
         self.field_detector = FieldDetector()
         self.goal_scorer = GoalScorer()
         self.player_detector = PlayerDetector()
-        self.color_picker = ColorPicker(self)
 
         self.player_result = None
         self.player_thread = None
@@ -56,6 +55,7 @@ class CombinedTracker:
         self.ball_thread = None
         self.field_thread = None
         self.frame_reader_thread = None
+        self.color_thread = None
         self.running = False
         self.frame_queue = LifoQueue(maxsize=1) 
         self.result_lock = Lock()
@@ -242,12 +242,20 @@ class CombinedTracker:
 
     def color_picker_thread(self):
         """Thread für den ColorPicker."""
-        app = QApplication(sys.argv)  # QApplication nur einmal erstellen
-        with self.result_lock:
-            frame = self.current_frame.copy() if self.current_frame is not None else np.zeros((480, 640, 3), dtype=np.uint8)
-        picker = ColorPicker(frame)  # Übergabe des aktuellen Frames
-        picker.show()
-        app.exec_()
+        try:
+            # Check if QApplication already exists
+            app = QApplication.instance()
+            if app is None:
+                app = QApplication(sys.argv)
+            
+            with self.result_lock:
+                frame = self.current_frame.copy() if self.current_frame is not None else np.zeros((480, 640, 3), dtype=np.uint8)
+            
+            picker = ColorPicker(frame)
+            picker.show()
+            app.exec()
+        except Exception as e:
+            print(f"Error starting color picker: {e}")
 
     def draw_player_visualization(self, frame):
         with self.result_lock:
@@ -266,7 +274,7 @@ class CombinedTracker:
             # Draw the transformed bounding box as a polygon
             cv2.polylines(frame, [transformed_corners], True, (0, 0, 255), 2)
             
-        # Transform team2 bounding boxes  
+        # Transform team2 bounding boxes
         for box in player_result_copy['team2']:
             x, y, w, h = box
             # Create corner points of the bounding box
@@ -275,8 +283,6 @@ class CombinedTracker:
             transformed_corners = self._transform_points(corners, self.M_persp)
             # Draw the transformed bounding box as a polygon
             cv2.polylines(frame, [transformed_corners], True, (255, 0, 0), 2)
-
-
 
     def _transform_points(self, points_array, M):
         if points_array.size == 0:
@@ -410,7 +416,7 @@ class CombinedTracker:
                    (10, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
         
         # Show key commands
-        cv2.putText(frame, "Keys: 1=Ball, 2=Field, 3=Both, r=Calibration, s=Screenshot, g=Reset Score, r=Reset Field Calibration, x=Reload GPU, c=Toggle CPU/GPU, h=Help", 
+        cv2.putText(frame, "Keys: 1=Ball, 2=Field, 3=Both, r=Calibration, s=Screenshot, g=Reset Score, x=Reload GPU, c=Toggle CPU/GPU, p=Color Picker, l=Reload Colors, a=Auto Reload, h=Help", 
                    (10, frame.shape[0] - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1)
     
     def start_threads(self):
@@ -433,9 +439,28 @@ class CombinedTracker:
             self.player_thread = Thread(target=self.player_tracking_thread, daemon=True)
             self.player_thread.start()
 
-        if self.visualization_mode in [self.COMBINED]: 
-            self.color_thread = Thread(target=self.color_picker_thread, daemon=True)
-            self.color_thread.start()
+        # Note: color_picker_thread should be started manually by user input, not automatically
+    
+    def start_color_picker(self):
+        """Start color picker in a separate thread"""
+        if self.color_thread and self.color_thread.is_alive():
+            print("Color picker is already running")
+            return
+        
+        self.color_thread = Thread(target=self.color_picker_thread, daemon=True)
+        self.color_thread.start()
+        print("Color picker started")
+    
+    def reload_player_colors(self):
+        """Lädt die Spielerfarben neu aus der colors.json Datei"""
+        self.player_detector.load_colors()
+        print("Spielerfarben erfolgreich neu geladen!")
+    
+    def toggle_auto_color_reload(self):
+        """Schaltet das automatische Neuladen der Farben ein/aus"""
+        self.player_detector.auto_reload = not self.player_detector.auto_reload
+        status = "aktiviert" if self.player_detector.auto_reload else "deaktiviert"
+        print(f"Automatisches Neuladen der Farben {status}")
 
     def stop_threads(self):
         """Stops the tracking threads"""
@@ -492,6 +517,9 @@ class CombinedTracker:
         print("  'r' - Reset field calibration")
         print("  'x' - Force GPU shader reload")
         print("  'c' - Toggle CPU/GPU processing")
+        print("  'p' - Start color picker")
+        print("  'l' - Reload player colors (colors.json)")
+        print("  'a' - Toggle auto color reload")
         print("  'h' - Show help")
         print("=" * 60)
 
@@ -666,6 +694,18 @@ class CombinedTracker:
                 
                 elif key == ord('c'):
                     self.toggle_processing_mode()
+                
+                elif key == ord('p'):
+                    # Start color picker
+                    self.start_color_picker()
+                
+                elif key == ord('l'):
+                    # Reload player colors
+                    self.reload_player_colors()
+                
+                elif key == ord('a'):
+                    # Toggle auto color reload
+                    self.toggle_auto_color_reload()
 
                 #print(f"\r{(time.time() - measure_time) * 1000000}", end="")
 
