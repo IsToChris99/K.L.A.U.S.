@@ -35,7 +35,7 @@ class CombinedTracker:
         #for Ball Speed
         self.ball_speed = 0.0
         self.last_ball_position = None
-        self.pixel_to_m_ratio = 1.18 / config.DETECTION_WIDTH
+        self.pixel_to_m_ratio = config.FIELD_WIDTH_M / config.DETECTION_WIDTH
 
         self.player_result = None
         self.player_thread = None
@@ -305,6 +305,7 @@ class CombinedTracker:
             if valid_pts:
                 transformed_smoothed_pts = self._transform_points(np.array(valid_pts), self.M_persp)
         missing_counter = ball_result_copy['missing_counter']
+        ball_speed = ball_result_copy.get('ball_speed', 0.0)
 
         # Draw ball info
         if detection[0] is not None:

@@ -1,31 +1,16 @@
-
 import numpy as np
+import config
+
+# Calculate the pixel to meter ratio based on field width and detection width
+pixel_to_m_ratio = config.FIELD_WIDTH_M / config.DETECTION_WIDTH
 
 def calculate_ball_speed(
     current_position: tuple[float, float] | None,
     last_position: tuple[float, float] | None,
     fps: float,
-    pixel_to_m_ratio: float | None
+    pixel_to_m_ratio: float | None = pixel_to_m_ratio  # Default parameter value set to calculated ratio
 ) -> tuple[float, tuple[float, float] | None]:
-    """
-    Calculates the speed of the ball based on its current and last position.
-
-    This function is stateless, meaning it doesn't remember anything between calls.
-    You must provide the 'last_position' from the previous call and store the
-    new position that this function returns for the next call.
-
-    Args:
-        current_position (tuple | None): The new (x, y) position of the ball.
-                                         If None, it means the ball was not detected.
-        last_position (tuple | None): The position of the ball from the previous frame.
-        fps (float): The frames per second to use for the time calculation.
-        pixel_to_m_ratio (float | None): The conversion factor from pixels to meters.
-
-    Returns:
-        tuple[float, tuple | None]: A tuple containing:
-            - The calculated speed in m/s (or 0.0 if it cannot be calculated).
-            - The new 'last_position' to be used in the next call (this will be the current_position).
-    """
+    
     # Case 1: Cannot calculate speed (first frame, ball lost, or invalid FPS).
     if last_position is None or current_position is None or fps <= 0:
         # The speed is 0, and the "new last position" is whatever the current one is.
