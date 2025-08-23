@@ -73,6 +73,7 @@ class CombinedTracker:
         self.processing_fps = 0
         self.last_fps_time = time.time()
         self.last_frame_count = 0
+        self.last_frame_time = None #delete if it does not work
 
         # Camera calibration - make undistortion optional for performance
         self.camera_calibration = CPUPreprocessor(config.CAMERA_CALIBRATION_FILE)
@@ -169,7 +170,8 @@ class CombinedTracker:
                 )
 
                 # Calculate ball speed using the imported function
-                fps = config.FRAME_RATE_TARGET
+                current_time = time.time() # Current time in seconds
+                fps = 1.0 / (current_time - self.last_frame_time) if (current_time - self.last_frame_time) > 0 else config.FRAME_RATE_TARGET #Change to actual frame rate
                 self.ball_speed, self.last_ball_position = calculate_ball_speed(
                     ball_position,
                     self.last_ball_position,
@@ -181,7 +183,8 @@ class CombinedTracker:
                     self.ball_result = {
                         'detection': detection_result,
                         'smoothed_pts': list(self.ball_tracker.smoothed_pts),
-                        'missing_counter': self.ball_tracker.missing_counter
+                        'missing_counter': self.ball_tracker.missing_counter,
+                        'ball_speed': self.ball_speed 
                     }
                 
             
