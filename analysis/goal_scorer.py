@@ -283,8 +283,8 @@ class GoalScorer:
         """Draws score information on the frame"""
         # Score
         score_text = f"Score - P1: {self.player1_goals}  P2: {self.player2_goals}"
-        cv2.putText(frame, score_text, (10, frame.shape[0] - 80),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.8, COLOR_SCORE_TEXT, 2)
+        # cv2.putText(frame, score_text, (10, frame.shape[0] - 80),
+        #            cv2.FONT_HERSHEY_SIMPLEX, 0.8, COLOR_SCORE_TEXT, 2)
         
         # Check for game won
         if self.player1_goals >= self.max_goals or self.player2_goals >= self.max_goals:
@@ -294,8 +294,8 @@ class GoalScorer:
             text_size = cv2.getTextSize(win_text, cv2.FONT_HERSHEY_SIMPLEX, 1.2, 3)[0]
             text_x = (frame.shape[1] - text_size[0]) // 2
             text_y = frame.shape[0] // 2
-            cv2.putText(frame, win_text, (text_x, text_y),
-                       cv2.FONT_HERSHEY_SIMPLEX, 1.2, COLOR_GOAL_ALERT, 3)
+            # cv2.putText(frame, win_text, (text_x, text_y),
+            #            cv2.FONT_HERSHEY_SIMPLEX, 1.2, COLOR_GOAL_ALERT, 3)
         
         # Ball status
         if self.ball_in_goal:

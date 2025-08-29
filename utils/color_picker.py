@@ -11,7 +11,7 @@ from PySide6.QtCore import Qt, QRect
 
 
 class ColorPicker(QWidget):
-    def __init__(self, frame, scale_factor=0.3):
+    def __init__(self, frame, scale_factor=1.0):
         super().__init__()
         self.setWindowTitle("Farbpicker (Live-Bild)")
 
@@ -222,9 +222,6 @@ class ColorPicker(QWidget):
             print("Team 2 HSV Bereich konnte nicht berechnet werden.")
 
     def save_json(self):
-        name, ok = QInputDialog.getText(self, "Speichern als", "Dateiname (z.B. colors.json):")
-        if not ok or not name.strip():
-            return
         config = {}
         if self.hsv_ranges_team1:
             config["team1"] = {
@@ -236,8 +233,14 @@ class ColorPicker(QWidget):
             }
 
         project_folder = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-        folder = os.path.join(project_folder, "detection")
-        filepath = os.path.join(folder, name)
+        filepath = os.path.join(project_folder, "detection/colors.json")
         with open(filepath, "w") as f:
             json.dump(config, f, indent=2)
         print(f"Gespeichert als {filepath}")
+
+if __name__ == "__main__":
+    frame = os.path.join(os.path.dirname(__file__), "C:\\Users\\guchr\\OneDrive\\Bilder\\Screenshots\\Screenshot 2025-08-29 121615.png")
+    app = QApplication(sys.argv)
+    picker = ColorPicker(frame=cv2.imread(frame))
+    picker.show()
+    sys.exit(app.exec())

@@ -9,7 +9,6 @@ from PySide6.QtWidgets import (
     QSlider, QComboBox, QCheckBox
 )
 
-from .clickable_video_label import ClickableVideoLabel
 from config import FRAME_RATE_TARGET, EXPOSURE_TIME, GAIN, BLACK_LEVEL, WHITE_BALANCE_AUTO
 
 
@@ -65,19 +64,19 @@ class StatisticsTab(QWidget):
 
 
 class CalibrationTab(QWidget):
-    """Tab für die Farbkalibrierung"""
+    """Calibration Tab - Grabs frame and saves as png"""
     
     def __init__(self, parent_window):
         super().__init__()
         self.parent_window = parent_window
         self.setup_ui()
-        
+    
     def setup_ui(self):
-        """Setup the calibration tab UI"""
+        """Setup the calibration tab UI mit neuen Funktionen"""
         main_layout = QVBoxLayout(self)
         
-        # Main container for calibration
-        calibration_container = QGroupBox("Color Calibration and Field Detection")
+        # Hauptcontainer für Kalibrierung
+        calibration_container = QGroupBox("Color Calibration Tools")
         calibration_container.setStyleSheet("""
             QGroupBox {
                 font-size: 16px;
@@ -95,132 +94,82 @@ class CalibrationTab(QWidget):
             }
         """)
         
-        # Horizontal layout for video and info
-        calibration_horizontal_layout = QHBoxLayout(calibration_container)
+        calibration_layout = QVBoxLayout(calibration_container)
         
-        # Left side: Video with color picker
-        left_video_layout = QVBoxLayout()
+        # Instruktionen
+        instructions_label = QLabel("""
+        Use these tools to calibrate player colors and save frames for analysis:
         
-        # Video label with color picker
-        self.parent_window.calibration_video_label = ClickableVideoLabel()
-        self.parent_window.calibration_video_label.setText("Click on video to pick colors - Waiting for video stream...")
-        self.parent_window.calibration_video_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.parent_window.calibration_video_label.setStyleSheet("border: 1px solid #9f9f9f; border-radius: 5px;")
-        self.parent_window.calibration_video_label.setMinimumSize(720, 540)  # 4:3 aspect ratio, larger for calibration
-        self.parent_window.calibration_video_label.setScaledContents(False)
+        1. Save Frame & Open ColorPicker: Captures the current perspective-corrected frame and opens the color picker
+        2. Reload Player Colors: Reloads the color configuration from colors.json
+        """)
+        instructions_label.setWordWrap(True)
+        instructions_label.setStyleSheet("""
+            QLabel {
+                color: #666666;
+                font-size: 12px;
+                font-style: italic;
+                padding: 10px;
+                border: 1px solid #cccccc;
+                border-radius: 5px;
+                background-color: #f9f9f9;
+            }
+        """)
+        calibration_layout.addWidget(instructions_label)
         
-        # Connect color picker signal
-        self.parent_window.calibration_video_label.color_picked.connect(self.parent_window.on_calibration_color_picked)
+        # Button-Container
+        button_container = QWidget()
+        button_layout = QVBoxLayout(button_container)
+        button_layout.setSpacing(15)
         
-        left_video_layout.addWidget(self.parent_window.calibration_video_label)
+        # Frame capture and color picker button
+        self.parent_window.save_frame_and_colorpicker_btn = QPushButton("Grab Frame and Start ColorPicker")
+        self.parent_window.save_frame_and_colorpicker_btn.setStyleSheet("""
+            QPushButton {
+                padding: 12px 20px;
+                background-color: #2196F3;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                font-weight: bold;
+                font-size: 14px;
+            }
+            QPushButton:hover {
+                background-color: #1976D2;
+            }
+            QPushButton:pressed {
+                background-color: #1565C0;
+            }
+        """)
+        button_layout.addWidget(self.parent_window.save_frame_and_colorpicker_btn)
         
-        # Right side: Color information and controls
-        right_info_layout = self.create_color_info_section()
+        # Player color reload button
+        self.parent_window.reload_player_colors_btn = QPushButton("Reload Player Colors")
+        self.parent_window.reload_player_colors_btn.setStyleSheet("""
+            QPushButton {
+                padding: 12px 20px;
+                background-color: #FF9800;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                font-weight: bold;
+                font-size: 14px;
+            }
+            QPushButton:hover {
+                background-color: #F57C00;
+            }
+            QPushButton:pressed {
+                background-color: #E65100;
+            }
+        """)
+        button_layout.addWidget(self.parent_window.reload_player_colors_btn)
         
-        # Add layouts to horizontal layout
-        calibration_horizontal_layout.addLayout(left_video_layout, stretch=2)
-        calibration_horizontal_layout.addLayout(right_info_layout, stretch=1)
+        calibration_layout.addWidget(button_container)
+        calibration_layout.addStretch()
         
         main_layout.addWidget(calibration_container)
         main_layout.addStretch()
-    
-    def create_color_info_section(self):
-        """Erstellt den Farbinformations-Bereich"""
-        right_info_layout = QVBoxLayout()
         
-        # HSV Color Info Box
-        self.parent_window.color_info_group = QGroupBox("Selected Color Information")
-        self.parent_window.color_info_group.setStyleSheet("""
-            QGroupBox {
-                font-size: 12px;
-                font-weight: normal;
-                border: 1px solid #9f9f9f;
-                border-radius: 5px;
-                margin-top: 1ex;
-                padding-top: 10px;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 20px;
-                padding: 0 5px 0 5px;
-                color: white;
-            }
-        """)
-        
-        color_info_layout = QVBoxLayout(self.parent_window.color_info_group)
-        
-        # Color preview
-        self.parent_window.color_preview = QLabel()
-        self.parent_window.color_preview.setFixedSize(60, 60)
-        self.parent_window.color_preview.setStyleSheet("border: 1px solid #9f9f9f; border-radius: 5px;")
-        self.parent_window.color_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.parent_window.color_preview.setText("No color\nselected")
-        color_info_layout.addWidget(self.parent_window.color_preview)        
-        
-        # HSV Values
-        self.parent_window.hsv_label = QLabel("HSV: Not selected")
-        self.parent_window.hsv_label.setStyleSheet("font-family: monospace; font-size: 12px; margin: 2px;")
-        color_info_layout.addWidget(self.parent_window.hsv_label)
-                
-        # HSV Range suggestion
-        self.parent_window.hsv_range_label = QLabel("HSV Range: Not calculated")
-        self.parent_window.hsv_range_label.setStyleSheet("font-family: monospace; font-size: 10px; margin: 2px; color: #FF6B6B;")
-        self.parent_window.hsv_range_label.setWordWrap(True)
-        color_info_layout.addWidget(self.parent_window.hsv_range_label)
-        
-        right_info_layout.addWidget(self.parent_window.color_info_group)
-        
-        # Calibration controls
-        calibration_controls_group = self.create_calibration_controls()
-        right_info_layout.addWidget(calibration_controls_group)
-        
-        # Instructions
-        instructions_label = QLabel("Click on the video to select colors for detectors.")
-        instructions_label.setStyleSheet("color: lightgrey; font-style: italic; margin: 5px;")
-        instructions_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        right_info_layout.addWidget(instructions_label)
-        right_info_layout.addStretch()
-        
-        return right_info_layout
-    
-    def create_calibration_controls(self):
-        """Erstellt die Kalibrierungssteuerung"""
-        calibration_controls_group = QGroupBox("Calibration Controls")
-        calibration_controls_group.setStyleSheet("""
-            QGroupBox {
-                font-size: 12px;
-                font-weight: normal;
-                border: 1px solid #9f9f9f;
-                border-radius: 5px;
-                margin-top: 1ex;
-                padding-top: 10px;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 20px;
-                padding: 0 5px 0 5px;
-                color: white;
-            }
-        """)
-        
-        controls_layout = QVBoxLayout(calibration_controls_group)
-        
-        # Placeholder buttons
-        self.parent_window.save_field_color_btn = QPushButton("Save Field Color")
-        self.parent_window.save_field_color_btn.setEnabled(False)  # Disabled until color is picked
-        
-        self.parent_window.save_ball_color_btn = QPushButton("Save Ball Color")
-        self.parent_window.save_ball_color_btn.setEnabled(False)
-        
-        self.parent_window.reset_calibration_btn = QPushButton("Reset Calibration")        
-        
-        controls_layout.addWidget(self.parent_window.save_field_color_btn)
-        controls_layout.addWidget(self.parent_window.save_ball_color_btn)
-        controls_layout.addWidget(self.parent_window.reset_calibration_btn)
-        
-        return calibration_controls_group
-
-
 class SettingsTab(QWidget):
     """Tab für die Kamera- und System-Einstellungen"""
     

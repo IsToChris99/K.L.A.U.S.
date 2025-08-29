@@ -170,7 +170,7 @@ class PlayerWorkerProcess(mp.Process):
 
             # Run player detection on current shared frame
             try:
-                team1_boxes, team2_boxes = self.detector.detect_players(frame)
+                team1_boxes, team2_boxes = self.detector.detect_players(frame, self.latest_field.get('field_corners'))
             except Exception:
                 # Robustness: swallow per-frame errors
                 team1_boxes, team2_boxes = [], []
@@ -420,7 +420,6 @@ class ProcessingProcess(mp.Process):
 
                 # Package for UI
                 final_package = {
-                    'raw_frame': raw_frame,
                     'preprocessed_frame': preprocessed_frame,
                     'ball_data': results.get('ball_data'),
                     'player_data': results.get('player_data'),

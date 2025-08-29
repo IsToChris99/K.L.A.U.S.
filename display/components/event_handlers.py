@@ -174,37 +174,6 @@ class EventHandlers:
         except Exception:
             pass
             
-    @Slot(int, int, int)
-    def on_calibration_color_picked(self, r, g, b):
-        """Behandelt die Farbauswahl aus dem Kalibrierungs-Tab-Video"""       
-        # Calculate and display HSV values
-        qcolor = QColor(r, g, b)
-        h, s, v = qcolor.hsvHue(), qcolor.hsvSaturation(), qcolor.value()
-        # Handle special case where HSV hue is -1 (grayscale)
-        h_display = h if h != -1 else 0
-        self.main_window.hsv_label.setText(f"HSV: ({h_display}, {s}, {v})")
-        self.main_window.color_preview.setText("")
-        self.main_window.color_preview.setStyleSheet(f"background-color: rgb({r}, {g}, {b});")
-
-        # Calculate HSV range suggestion (±10 for hue, ±30 for saturation, ±30 for value)
-        h_min = max(0, h_display - 10)
-        h_max = min(179, h_display + 10)  # OpenCV uses 0-179 for hue
-        s_min = max(0, s - 30)
-        s_max = min(255, s + 30)
-        v_min = max(0, v - 30)
-        v_max = min(255, v + 30)
-        
-        range_text = f"HSV Range:\nLower: ({h_min}, {s_min}, {v_min})\nUpper: ({h_max}, {s_max}, {v_max})"
-        self.main_window.hsv_range_label.setText(range_text)
-        self.main_window.hsv_range_label.setStyleSheet("color: #4CAF50;")
-        
-        # Enable the save buttons
-        self.main_window.save_field_color_btn.setEnabled(True)
-        self.main_window.save_ball_color_btn.setEnabled(True)
-        
-        # Log the color selection
-        self.main_window.add_log_message(f"Calibration color selected: RGB({r}, {g}, {b}) HSV({h_display}, {s}, {v})")
-    
     @Slot()
     def apply_settings(self):
         """Kamera- und Verarbeitungseinstellungen anwenden"""

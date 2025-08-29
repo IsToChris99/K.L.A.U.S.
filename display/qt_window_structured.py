@@ -1,6 +1,9 @@
 import cv2
 import numpy as np
 import time
+import os
+import sys
+from datetime import datetime
 
 from PySide6.QtCore import Qt, Slot, QTimer
 from PySide6.QtGui import QImage, QPixmap
@@ -13,6 +16,12 @@ from .components.visualization_engine import VisualizationEngine
 from .components.event_handlers import EventHandlers
 from processing.cpu_preprocessor import CPUPreprocessor
 from processing.gpu_preprocessor import GPUPreprocessor
+
+# Import ColorPicker from utils
+try:
+    from utils.color_picker import ColorPicker
+except ImportError:
+    print("Warning: ColorPicker could not be imported from utils")
 
 
 class KickerMainWindow(QMainWindow):
@@ -152,6 +161,12 @@ class KickerMainWindow(QMainWindow):
         # Processing mode toggle
         if hasattr(self, 'processing_mode_checkbox'):
             self.processing_mode_checkbox.toggled.connect(self.event_handlers.toggle_processing_mode)
+            
+        # Calibration tab buttons
+        if hasattr(self, 'save_frame_and_colorpicker_btn'):
+            self.save_frame_and_colorpicker_btn.clicked.connect(self.save_frame_and_open_colorpicker)
+        if hasattr(self, 'reload_player_colors_btn'):
+            self.reload_player_colors_btn.clicked.connect(self.reload_player_colors)
       
     def poll_results_queue(self):
         """Pollt die Ergebnis-Queue für neue Daten aus dem Verarbeitungsprozess - optimierte Version"""
@@ -168,7 +183,7 @@ class KickerMainWindow(QMainWindow):
                     items_processed += 1
                     
                     # Update current state
-                    self.current_raw_frame = result_package.get("raw_frame")
+                    # self.current_raw_frame = result_package.get("raw_frame")
                     self.current_preprocessed_frame = result_package.get("preprocessed_frame")
                     self.current_ball_data = result_package.get("ball_data")
                     self.current_player_data = result_package.get("player_data")
@@ -223,10 +238,10 @@ class KickerMainWindow(QMainWindow):
                     break
             
             # Update the display only if we have a frame and processed some data
-            if items_processed > 0 and self.current_raw_frame is not None:
-                #self.current_display_frame = self.current_preprocessed_frame
-                self.current_display_frame = self.cpu_preprocessor.process_display_frame(self.current_raw_frame, self.current_M_persp)
-                #self.current_display_frame = self.gpu_preprocessor.process_display_frame(self.current_raw_frame, self.current_M_persp)
+            if items_processed > 0 and self.current_preprocessed_frame is not None:
+                self.current_display_frame = self.current_preprocessed_frame
+                # self.current_display_frame = self.cpu_preprocessor.process_display_frame(self.current_raw_frame, self.current_M_persp)
+                # self.current_display_frame = self.gpu_preprocessor.process_display_frame(self.current_raw_frame, self.current_M_persp)
                 self.update_display()
                 
                 # Update Display FPS
@@ -252,7 +267,8 @@ class KickerMainWindow(QMainWindow):
             self.visualization_mode,
             self.current_ball_data,
             getattr(self, 'current_field_data', None),
-            getattr(self, 'current_player_data', None)
+            getattr(self, 'current_player_data', None),
+            getattr(self, 'current_M_persp', None)
         )
         
         # Convert frame to Qt format and display
@@ -263,75 +279,39 @@ class KickerMainWindow(QMainWindow):
     
     @Slot(np.ndarray)
     def update_frame(self, frame):
-        """Aktualisiert die Video-Anzeige mit einem neuen Frame - optimiert für Performance"""
+        """Aktualisiert die Video-Anzeige mit einem neuen Frame - optimiert für Performance (zentralisiert)."""
         try:
             if frame is None or frame.size == 0:
                 return
-                
-            current_time = time.time()
-            if not hasattr(self, '_last_secondary_update_time'):
-                self._last_secondary_update_time = 0
 
-            update_secondary = (current_time - self._last_secondary_update_time) > 0.05
-
-            # Convert to RGB once and reuse
+            # Einmalige Konvertierung und Pixmap-Erstellung
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             h, w, ch = rgb_frame.shape
             bytes_per_line = ch * w
-            
-            # Always update main tracking tab
-            try:
-                main_rgb_copy = np.ascontiguousarray(rgb_frame)
-                main_qt_image = QImage(main_rgb_copy.data, w, h, bytes_per_line, QImage.Format.Format_RGB888)
-                main_pixmap = QPixmap.fromImage(main_qt_image).scaled(
-                    self.video_label.size(),
-                    Qt.AspectRatioMode.KeepAspectRatio,
-                    Qt.TransformationMode.SmoothTransformation
-                )
-                self.video_label.setPixmap(main_pixmap)
-                self.settings_video_label.setPixmap(main_pixmap)
-                self.calibration_video_label.setPixmap(main_pixmap)
-            except Exception as e:
-                print(f"Error updating main video: {e}")
-            
-            # Update secondary displays less frequently
-            # if update_secondary:
-            #     self._update_secondary_displays(rgb_frame, frame, h, w, bytes_per_line)
-            #     self._last_secondary_update_time = current_time
-                
+            rgb_copy = np.ascontiguousarray(rgb_frame)
+            qt_image = QImage(rgb_copy.data, w, h, bytes_per_line, QImage.Format.Format_RGB888)
+
+            # Pixmap für Hauptanzeige
+            main_pixmap = QPixmap.fromImage(qt_image).scaled(
+                self.video_label.size(),
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation
+            )
+            self.video_label.setPixmap(main_pixmap)
+
+            # Pixmap für Settings-Tab
+            if hasattr(self, 'settings_video_label'):
+                settings_pixmap = main_pixmap
+                if self.settings_video_label.size() != self.video_label.size():
+                    settings_pixmap = QPixmap.fromImage(qt_image).scaled(
+                        self.settings_video_label.size(),
+                        Qt.AspectRatioMode.KeepAspectRatio,
+                        Qt.TransformationMode.SmoothTransformation
+                    )
+                self.settings_video_label.setPixmap(settings_pixmap)
+
         except Exception as e:
             print(f"Critical error in update_frame: {e}")
-    
-    def _update_secondary_displays(self, rgb_frame, original_frame, h, w, bytes_per_line):
-        """Aktualisiert die sekundären Displays (Settings und Calibration)"""
-        # Update settings tab video
-        if hasattr(self, 'settings_video_label') and self.settings_video_label.isVisible():
-            try:
-                settings_rgb_copy = np.ascontiguousarray(rgb_frame)
-                settings_qt_image = QImage(settings_rgb_copy.data, w, h, bytes_per_line, QImage.Format.Format_RGB888)
-                settings_pixmap = QPixmap.fromImage(settings_qt_image).scaled(
-                    self.settings_video_label.size(),
-                    Qt.AspectRatioMode.KeepAspectRatio,
-                    Qt.TransformationMode.SmoothTransformation
-                )
-                self.settings_video_label.setPixmap(settings_pixmap)
-            except Exception as e:
-                print(f"Error updating settings video: {e}")
-        
-        # Update calibration tab video
-        if hasattr(self, 'calibration_video_label') and self.calibration_video_label.isVisible():
-            try:
-                calibration_rgb_copy = np.ascontiguousarray(rgb_frame)
-                calibration_qt_image = QImage(calibration_rgb_copy.data, w, h, bytes_per_line, QImage.Format.Format_RGB888)
-                calibration_pixmap = QPixmap.fromImage(calibration_qt_image).scaled(
-                    self.calibration_video_label.size(),
-                    Qt.AspectRatioMode.KeepAspectRatio,
-                    Qt.TransformationMode.SmoothTransformation
-                )
-                frame_copy = np.ascontiguousarray(original_frame)
-                self.calibration_video_label.set_frame_data(frame_copy, calibration_pixmap)
-            except Exception as e:
-                print(f"Error updating calibration video: {e}")
     
     def add_log_message(self, message):
         """Fügt eine Log-Nachricht hinzu"""
@@ -364,14 +344,88 @@ class KickerMainWindow(QMainWindow):
         """Gibt die aktuellen max_goals zurück, die vom Hauptprozess empfangen wurden"""
         return self.current_max_goals
     
+    def save_frame_and_open_colorpicker(self):
+        """Speichert den aktuellen Frame mit Perspektivkorrektur als PNG und öffnet den ColorPicker"""
+        #last acquisition
+        frame = self.current_preprocessed_frame
+        try:
+            if frame is None or self.current_M_persp is None:
+                self.add_log_message("No frame or perspective matrix available for frame saving")
+                return
+            
+            # Erstelle utils Ordner falls nicht vorhanden
+            utils_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "utils")
+            if not os.path.exists(utils_dir):
+                os.makedirs(utils_dir)
+            
+            #frame = self.cpu_preprocessor.process_display_frame(raw_frame, self.current_M_persp)
+            
+            # ColorPicker öffnen
+            try:
+                color_picker = ColorPicker(frame)
+                color_picker.show()
+                color_picker.exec()  # Modal dialog
+                self.add_log_message("Opened ColorPicker successfully")
+            except Exception as e:
+                self.add_log_message(f"Error opening ColorPicker: {e}")
+                
+        except Exception as e:
+            self.add_log_message(f"Error saving frame as .png: {e}")
+    
+    def reload_player_colors(self):
+        """Lädt die Player-Farben neu über die Command Queue"""
+        try:
+            # Sende Kommando an den Verarbeitungsprozess
+            self.command_queue.put({'type': 'reload_player_colors'})
+            self.add_log_message("Player colors reload command sent")
+        except Exception as e:
+            self.add_log_message(f"Error reloading colors: {e}")
+    
     # Event-Handler-Delegationen
     def toggle_processing_mode(self, checked):
         """Delegiert an EventHandlers"""
         self.event_handlers.toggle_processing_mode(checked)
     
-    def on_calibration_color_picked(self, r, g, b):
-        """Delegiert an EventHandlers"""
-        self.event_handlers.on_calibration_color_picked(r, g, b)
+    def save_frame_and_open_colorpicker(self):
+        """Speichert den aktuellen Frame als PNG und öffnet den ColorPicker"""
+        try:
+            if self.current_display_frame is None:
+                self.add_log_message("No frame available to save")
+                return
+            
+            # Erstelle utils Ordner falls er nicht existiert
+            utils_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "utils")
+            if not os.path.exists(utils_dir):
+                os.makedirs(utils_dir)
+            
+            filename = f"captured_frame.png"
+            filepath = os.path.join(utils_dir, filename)
+            
+            # Speichere Frame als PNG
+            success = cv2.imwrite(filepath, self.current_display_frame)
+            
+            if success:
+                self.add_log_message(f"Frame saved as: {filename}")
+                
+                # Öffne ColorPicker mit dem gespeicherten Frame
+                try:
+                    # Lade das Bild für den ColorPicker
+                    frame_for_picker = cv2.imread(filepath)
+                    if frame_for_picker is not None:
+                        # Erstelle und zeige ColorPicker
+                        self.color_picker_window = ColorPicker(frame=frame_for_picker)
+                        self.color_picker_window.show()
+                        self.add_log_message("ColorPicker opened with captured frame")
+                    else:
+                        self.add_log_message("Error: Could not load saved frame for ColorPicker")
+                except Exception as e:
+                    self.add_log_message(f"Error opening ColorPicker: {str(e)}")
+            else:
+                self.add_log_message("Error: Failed to save frame")
+                
+        except Exception as e:
+            self.add_log_message(f"Error in save_frame_and_open_colorpicker: {str(e)}")
+            print(f"Error in save_frame_and_open_colorpicker: {str(e)}")
     
     def closeEvent(self, event):
         """Aufgerufen, wenn das Fenster geschlossen wird"""
