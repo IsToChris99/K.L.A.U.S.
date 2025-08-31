@@ -6,55 +6,48 @@ import time
 
 class PlayerDetector:
     def __init__(self, color_config_path=None):
-        # Pfad speichern für späteres Neuladen
+        # path saving
         if color_config_path is None:
             color_config_path = os.path.join(os.path.dirname(__file__), "colors.json")
         self.color_config_path = color_config_path
         
-        # Farben laden
+        # load colors
         self.load_colors()
         
-        # Zeitstempel der letzten Änderung der Datei speichern
+        # timestamp last modified
         self.last_modified = 0
-        self.auto_reload = True  # Automatisches Neuladen aktiviert
+        self.auto_reload = True  # automatical reload on change
 
-        # # Feld-Ecken aus Config laden
-        # if field_calibration_config_path is None:
-        #     field_calibration_config_path = os.path.join(os.path.dirname(__file__), "field_calibration.json")
-        
-        # with open(field_calibration_config_path, "r") as f:
-        #     field_data = json.load(f)
-        # self.field_corners = np.array(field_data.get("field_corners", []), dtype=np.int32)
     
     def load_colors(self):
-        """Lädt die Farbkonfiguration aus der JSON-Datei"""
+        """Loads the color configuration from the JSON file"""
         try:
             with open(self.color_config_path, "r") as f:
                 data = json.load(f)
             self.team1_ranges = data.get("team1", {}).get("ranges", [])
             self.team2_ranges = data.get("team2", {}).get("ranges", [])
             
-            # Zeitstempel der letzten Änderung aktualisieren
+            # timestamp last modified reload
             self.last_modified = os.path.getmtime(self.color_config_path)
             
-            print(f"Farben erfolgreich geladen: Team1={len(self.team1_ranges)} Bereiche, Team2={len(self.team2_ranges)} Bereiche")
+            print(f"Colors loaded successfully: Team1={len(self.team1_ranges)} areas, Team2={len(self.team2_ranges)} areas")
         except Exception as e:
-            print(f"Fehler beim Laden der Farben: {e}")
+            print(f"Error loading colors: {e}")
             self.team1_ranges = []
             self.team2_ranges = []
     
     def check_and_reload_colors(self):
-        """Prüft ob die colors.json Datei geändert wurde und lädt sie neu"""
+        """Checks if the colors.json file has been changed and reloads it"""
         if not self.auto_reload:
             return
             
         try:
             current_modified = os.path.getmtime(self.color_config_path)
             if current_modified > self.last_modified:
-                print("colors.json wurde geändert - lade Farben neu...")
+                print("colors.json has been changed - reload colors...")
                 self.load_colors()
         except Exception as e:
-            print(f"Fehler beim Prüfen der Datei: {e}")
+            print(f"Error checking file: {e}")
 
     def non_max_suppression_fast(self, boxes, overlap_thresh=0.4):
         if not boxes:
@@ -99,19 +92,20 @@ class PlayerDetector:
         return mask
 
     def detect_players(self, frame, field_corners):
-        # Prüfe automatisch auf Änderungen der colors.json
+        
+        # Automatically checks for changes to colors.json
         self.check_and_reload_colors()
         
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
 
-        # Maske aus gespeicherten Feld-Ecken erstellen mit % Freiraum
+        # creates mask from saved field corners with % free space
         if field_corners.size > 0:
-            # Mittelpunkt des Feldes berechnen
+            # Calculate the center of the field
             center = np.mean(field_corners, axis=0)
             expanded_corners = []
             for corner in field_corners:
                 vector = corner - center
-                expanded_corner = center + vector * 1.0  # % anpassen
+                expanded_corner = center + vector * 1.0 
                 expanded_corners.append(expanded_corner)
             expanded_corners = np.array(expanded_corners, dtype=np.int32)
 
@@ -120,7 +114,7 @@ class PlayerDetector:
         else:
             field_mask = np.ones(frame.shape[:2], dtype=np.uint8) * 255
 
-        # Spieler nur innerhalb des Feldes erkennen
+        # Detect players only within the field
         boxes_t1 = self._detect_team(hsv, self.team1_ranges, field_mask)
         boxes_t2 = self._detect_team(hsv, self.team2_ranges, field_mask)
         return boxes_t1, boxes_t2

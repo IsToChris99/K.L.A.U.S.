@@ -13,21 +13,21 @@ from PySide6.QtCore import Qt, QRect
 class ColorPicker(QWidget):
     def __init__(self, frame, scale_factor=1.0):
         super().__init__()
-        self.setWindowTitle("Farbpicker (Live-Bild)")
+        self.setWindowTitle("Colorpicker (Live-Picture)")
 
         self.scale_factor = scale_factor
         self.original_image = frame
         self.display_image = cv2.resize(self.original_image, (0, 0), fx=self.scale_factor, fy=self.scale_factor)
 
-        # Farben je Team speichern
+        # Colors per team saved
         self.picked_colors_team1 = []
         self.picked_colors_team2 = []
 
-        # HSV-Bereiche je Team (Liste von (min, max))
+        # HSV areas per team (list of (min, max))
         self.hsv_ranges_team1 = []
         self.hsv_ranges_team2 = []
 
-        # Aktuelles Team: 1 oder 2
+        # Current team: 1 or 2
         self.current_team = 1
 
         self.label = QLabel(self)
@@ -39,19 +39,19 @@ class ColorPicker(QWidget):
         self.selection_rect = QRect()
         self.selecting = False
 
-        self.info = QLabel("Klicke und ziehe zum Farbpicken (Team 1)", self)
+        self.info = QLabel("Click and drag to pick colors (Team 1)", self)
 
         # Buttons
-        self.team1_btn = QPushButton("Team 1 kalibrieren", self)
+        self.team1_btn = QPushButton("Calibrate Team 1", self)
         self.team1_btn.clicked.connect(self.set_team1)
 
-        self.team2_btn = QPushButton("Team 2 kalibrieren", self)
+        self.team2_btn = QPushButton("Calibrate Team 2", self)
         self.team2_btn.clicked.connect(self.set_team2)
 
-        self.done_btn = QPushButton("Bereich berechnen", self)
+        self.done_btn = QPushButton("Calculate", self)
         self.done_btn.clicked.connect(self.compute_hsv_ranges)
 
-        self.save_btn = QPushButton("Speichern", self)
+        self.save_btn = QPushButton("Save", self)
         self.save_btn.clicked.connect(self.save_json)
 
         layout = QVBoxLayout()
@@ -82,20 +82,20 @@ class ColorPicker(QWidget):
     def finish_selection(self, event):
         self.selecting = False
         if self.selection_rect.width() < 5 or self.selection_rect.height() < 5:
-            print("Auswahl zu klein.")
+            print("Selection too small.")
             return
         self.process_roi()
 
     def paintEvent(self, event):
         super().paintEvent(event)
         if self.selecting and not self.selection_rect.isNull():
-            # Erstelle eine Kopie des Pixmaps zum Zeichnen
+            # Creates a copy of the pixmap for drawing
             pixmap = self.label.pixmap().copy()
             painter = QPainter(pixmap)
             pen = QPen(QColor(0, 255, 0), 2, Qt.PenStyle.DashLine)
             painter.setPen(pen)
             painter.drawRect(self.selection_rect)
-            painter.end()  # Wichtig: Painter beenden bevor das Pixmap verwendet wird
+            painter.end()  
             self.label.setPixmap(pixmap)
 
     def process_roi(self):
@@ -111,14 +111,14 @@ class ColorPicker(QWidget):
         h = min(h, h_img - y)
 
         if w <= 0 or h <= 0:
-            print("Ungültige Auswahl.")
+            print("Invalid selection")
             return
 
         roi_img = self.original_image[y:y+h, x:x+w]
         roi_img = cv2.GaussianBlur(roi_img, (5, 5), 0)
         roi_hsv = cv2.cvtColor(roi_img, cv2.COLOR_BGR2HSV)
 
-        # *** CLAHE auf V-Kanal ***
+        # CLAHE V-Kanal
         clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
         roi_hsv[:, :, 2] = clahe.apply(roi_hsv[:, :, 2])
 
@@ -128,16 +128,16 @@ class ColorPicker(QWidget):
         value_thresh = 50
         pixels = pixels[(pixels[:, 1] > saturation_thresh) & (pixels[:, 2] > value_thresh)]
         if len(pixels) == 0:
-            print("Keine gültigen Pixel in Auswahl.")
+            print("No valid pixels in selection")
             return
 
         n_clusters = min(5, max(2, len(pixels) // 1000))
         
-        # Verwende OpenCV K-Means statt sklearn
+        # Uses OpenCV K-Means
         pixels_float = np.float32(pixels)
         criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 100, 0.2)
         
-        # K-Means mit OpenCV
+        # K-Means with OpenCV
         ret, labels, centers = cv2.kmeans(
             pixels_float, 
             n_clusters, 
@@ -147,7 +147,7 @@ class ColorPicker(QWidget):
             cv2.KMEANS_RANDOM_CENTERS
         )
 
-        # Finde dominante Farben basierend auf Cluster-Größe
+        # Finds dominant colors based on cluster size
         unique_labels, counts = np.unique(labels.flatten(), return_counts=True)
         top_n = min(2, len(counts))
         top_clusters = np.argsort(counts)[::-1][:top_n]
@@ -158,18 +158,18 @@ class ColorPicker(QWidget):
 
         if self.current_team == 1:
             self.picked_colors_team1.append(dominant_color.tolist())
-            print(f"Team 1 Farbe gepickt: {tuple(dominant_color)}")
+            print(f"Team 1 color picked: {tuple(dominant_color)}")
         else:
             self.picked_colors_team2.append(dominant_color.tolist())
-            print(f"Team 2 Farbe gepickt: {tuple(dominant_color)}")
+            print(f"Team 2 color picked: {tuple(dominant_color)}")
 
     def set_team1(self):
         self.current_team = 1
-        self.info.setText("Team 1 kalibrieren: Farben auswählen")
+        self.info.setText("Calibrate Team 1: Select colors")
 
     def set_team2(self):
         self.current_team = 2
-        self.info.setText("Team 2 kalibrieren: Farben auswählen")
+        self.info.setText("Calibrate Team 2: Select colors")
 
     def compute_hsv_range_for_team(self, picked_colors):
         if not picked_colors:
@@ -178,7 +178,7 @@ class ColorPicker(QWidget):
         picked_array = np.array(picked_colors)
         hues = picked_array[:, 0]
 
-        # Trenne Hue in zwei Gruppen: "klein" und "groß" (wegen zyklischem Hue)
+        # Separates Hue into two groups: "small" and "large" (due to cyclic Hue)
         group1 = picked_array[hues < 20]
         group2 = picked_array[hues > 160]
 
@@ -195,7 +195,7 @@ class ColorPicker(QWidget):
             ranges.append((min_hsv.astype(int), max_hsv.astype(int)))
 
         if not ranges:
-            # Fallback bei keiner Gruppierung
+            # Fallback if no grouping
             median_color = np.median(picked_array, axis=0)
             std_dev = np.std(picked_array, axis=0)
             tolerance = np.clip(std_dev * 2.5, [5, 30, 30], [30, 70, 70])
@@ -211,15 +211,15 @@ class ColorPicker(QWidget):
 
         if self.hsv_ranges_team1:
             for i, (min_hsv, max_hsv) in enumerate(self.hsv_ranges_team1):
-                print(f"Team 1 HSV Bereich {i+1}: {min_hsv} - {max_hsv}")
+                print(f"Team 1 HSV area {i+1}: {min_hsv} - {max_hsv}")
         else:
-            print("Team 1 HSV Bereich konnte nicht berechnet werden.")
+            print("Team 1 HSV area could not be calculated.")
 
         if self.hsv_ranges_team2:
             for i, (min_hsv, max_hsv) in enumerate(self.hsv_ranges_team2):
-                print(f"Team 2 HSV Bereich {i+1}: {min_hsv} - {max_hsv}")
+                print(f"Team 2 HSV area {i+1}: {min_hsv} - {max_hsv}")
         else:
-            print("Team 2 HSV Bereich konnte nicht berechnet werden.")
+            print("Team 2 HSV area could not be calculated.")
 
     def save_json(self):
         config = {}
@@ -236,7 +236,7 @@ class ColorPicker(QWidget):
         filepath = os.path.join(project_folder, "detection/colors.json")
         with open(filepath, "w") as f:
             json.dump(config, f, indent=2)
-        print(f"Gespeichert als {filepath}")
+        print(f"Saved as {filepath}")
 
 if __name__ == "__main__":
     frame = os.path.join(os.path.dirname(__file__), "C:\\Users\\guchr\\OneDrive\\Bilder\\Screenshots\\Screenshot 2025-08-29 121615.png")
