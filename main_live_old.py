@@ -91,6 +91,11 @@ class CombinedTracker:
         self.velocity = 0.0
         self.px_to_cm_ratio = 0
         #self.ball_speed = BallSpeed()
+
+        # Ball speed implementation
+        self.ball_speed = 0.0
+        self.last_ball_position = None
+        self.pixel_to_m_ratio = config.FIELD_WIDTH_M / config.DETECTION_WIDTH
         
     def frame_reader_thread_method(self):
         """Frame reading thread - only reads raw Bayer frames"""
@@ -166,6 +171,18 @@ class CombinedTracker:
                     self.ball_tracker.missing_counter,
                     ball_velocity
                 )
+
+                #für Ballspeed
+                if self.processing_fps > 0:
+                    self.ball_speed_calculator.update_parameters(fps=self.processing_fps)
+
+                # Calculate the speed based on the current ball position
+                if ball_position:
+                    current_ball_speed = self.ball_speed_calculator.update(ball_position)
+                else:
+                    self.ball_speed_calculator.reset()
+                    current_ball_speed = 0.0
+
                 
                 with self.result_lock:
                     self.ball_result = {
@@ -415,6 +432,16 @@ class CombinedTracker:
         cv2.putText(frame, f"Processing: {self.processing_fps:.1f} FPS", 
                    (10, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
         
+        # display Ball Speed information
+        with self.result_lock:
+            # Default to 0.0 if the result dictionary or the speed key doesn't exist yet
+            ball_speed = self.ball_result.get('ball_speed', 0.0) if self.ball_result else 0.0
+
+        # Draw the speed text on the frame in a fixed position
+        speed_text = f"Speed: {ball_speed:.2f} m/s"
+        cv2.putText(frame, speed_text, (10, frame.shape[0] - 40), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+
         # Show key commands
         cv2.putText(frame, "Keys: 1=Ball, 2=Field, 3=Both, r=Calibration, s=Screenshot, g=Reset Score, x=Reload GPU, c=Toggle CPU/GPU, p=Color Picker, l=Reload Colors, a=Auto Reload, h=Help", 
                    (10, frame.shape[0] - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1)
