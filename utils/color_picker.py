@@ -81,36 +81,66 @@ class ColorPicker(QWidget):
         bytes_per_line = ch * w
         return QPixmap.fromImage(QImage(rgb_image.data, w, h, bytes_per_line, QImage.Format_RGB888))
 
+    # def start_selection(self, event):
+    #     self.selecting = True
+    #     self.start_point = event.position().toPoint()
+    #     self.selection_rect = QRect()
+
+    # def update_selection(self, event):
+    #     if self.selecting:
+    #         self.selection_rect = QRect(self.start_point, event.position().toPoint()).normalized()
+    #         self.update()
+
+    # def finish_selection(self, event):
+    #     self.selecting = False
+    #     #self.label.setPixmap(self.get_pixmap(self.display_image))
+    #     if self.selection_rect.width() < 5 or self.selection_rect.height() < 5:
+    #         print("Selection too small.")
+    #         return
+    #     self.process_roi()
+
+    # def paintEvent(self, event):
+    #     super().paintEvent(event)
+    #     if self.selecting and not self.selection_rect.isNull():
+    #         # Creates a copy of the pixmap for drawing
+    #         pixmap = self.label.pixmap().copy()
+    #         painter = QPainter(pixmap)
+    #         pen = QPen(QColor(0, 255, 0), 2, Qt.PenStyle.DashLine)
+    #         painter.setPen(pen)
+    #         painter.drawRect(self.selection_rect)
+    #         painter.end()  
+    #         self.label.setPixmap(pixmap)
+
     def start_selection(self, event):
         self.selecting = True
         self.start_point = event.position().toPoint()
         self.selection_rect = QRect()
-        #self.label.setPixmap(self.get_pixmap(self.display_image))
+        self.label.setPixmap(self.get_pixmap(self.display_image))
 
     def update_selection(self, event):
         if self.selecting:
-            self.selection_rect = QRect(self.start_point, event.position().toPoint()).normalized()
-            self.update()
-
-    def finish_selection(self, event):
-        self.selecting = False
-        #self.label.setPixmap(self.get_pixmap(self.display_image))
-        if self.selection_rect.width() < 5 or self.selection_rect.height() < 5:
-            print("Selection too small.")
-            return
-        self.process_roi()
-
-    def paintEvent(self, event):
-        super().paintEvent(event)
-        if self.selecting and not self.selection_rect.isNull():
-            # Creates a copy of the pixmap for drawing
-            pixmap = self.label.pixmap().copy()
+            pixmap = self.get_pixmap(self.display_image).copy()
             painter = QPainter(pixmap)
             pen = QPen(QColor(0, 255, 0), 2, Qt.PenStyle.DashLine)
             painter.setPen(pen)
+            
+            self.selection_rect = QRect(self.start_point, event.position().toPoint()).normalized()
             painter.drawRect(self.selection_rect)
-            painter.end()  
+            painter.end()
             self.label.setPixmap(pixmap)
+
+    def finish_selection(self, event):
+        self.selecting = False
+        self.label.setPixmap(self.get_pixmap(self.display_image))
+        
+        click_threshold = 3
+        if self.selection_rect.width() < click_threshold and self.selection_rect.height() < click_threshold:
+            self.process_single_pixel(event.position().toPoint())
+        else:
+            self.process_roi()
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
 
     def process_roi(self):
         x = int(self.selection_rect.x() / self.scale_factor)
@@ -170,18 +200,55 @@ class ColorPicker(QWidget):
 
         dominant_color = np.average(dominant_colors, axis=0, weights=weights).astype(int)
 
+        # if self.current_calibration == 1:
+        #     self.picked_colors_team1.append(dominant_color.tolist())
+        #     print(f"Team 1 color picked: {tuple(dominant_color)}")
+        # elif self.current_calibration == 2:
+        #     self.picked_colors_team2.append(dominant_color.tolist())
+        #     print(f"Team 2 color picked: {tuple(dominant_color)}")
+        # elif self.current_calibration == 3:
+        #     self.picked_colors_ball.append(dominant_color.tolist())
+        #     print(f"Ball color picked: {tuple(dominant_color)}")
+        # elif self.current_calibration == 4:
+        #     self.picked_colors_corners.append(dominant_color.tolist())
+        #     print(f"Corners color picked: {tuple(dominant_color)}")
+
+        self.add_color(dominant_color.tolist())
+
+    def process_single_pixel(self, point):
+        """Processes the color of a single clicked pixel."""
+        x = int(point.x() / self.scale_factor)
+        y = int(point.y() / self.scale_factor)
+
+        h_img, w_img, _ = self.original_image.shape
+        if not (0 <= y < h_img and 0 <= x < w_img):
+            print("Click was outside the image bounds.")
+            return
+
+        pixel_bgr = self.original_image[y, x]
+
+        pixel_hsv = cv2.cvtColor(np.uint8([[pixel_bgr]]), cv2.COLOR_BGR2HSV)[0][0]
+        
+        self.add_color(pixel_hsv.tolist())
+
+    def add_color(self, hsv_color_list):
+        """Adds a picked color to the correct list and the undo stack."""
         if self.current_calibration == 1:
-            self.picked_colors_team1.append(dominant_color.tolist())
-            print(f"Team 1 color picked: {tuple(dominant_color)}")
+            self.picked_colors_team1.append(hsv_color_list)
+            print(f"Team 1 color picked: {tuple(hsv_color_list)}")
+            # self.undo_stack.append(self.picked_colors_team1) # Optional: Falls du die Undo-Funktion nutzt
         elif self.current_calibration == 2:
-            self.picked_colors_team2.append(dominant_color.tolist())
-            print(f"Team 2 color picked: {tuple(dominant_color)}")
+            self.picked_colors_team2.append(hsv_color_list)
+            print(f"Team 2 color picked: {tuple(hsv_color_list)}")
+            # self.undo_stack.append(self.picked_colors_team2)
         elif self.current_calibration == 3:
-            self.picked_colors_ball.append(dominant_color.tolist())
-            print(f"Ball color picked: {tuple(dominant_color)}")
+            self.picked_colors_ball.append(hsv_color_list)
+            print(f"Ball color picked: {tuple(hsv_color_list)}")
+            # self.undo_stack.append(self.picked_colors_ball)
         elif self.current_calibration == 4:
-            self.picked_colors_corners.append(dominant_color.tolist())
-            print(f"Corners color picked: {tuple(dominant_color)}")
+            self.picked_colors_corners.append(hsv_color_list)
+            print(f"Corners color picked: {tuple(hsv_color_list)}")
+            # self.undo_stack.append(self.picked_colors_corners)
 
     def set_team1(self):
         self.current_calibration = 1
