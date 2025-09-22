@@ -401,6 +401,10 @@ class BallDetector:
         
         return segments
     
+    def get_ball_speed(self):
+        """Returns the speed (magnitude of velocity vector)"""
+        vx, vy = self.kalman_tracker.get_velocity()
+        return np.sqrt(vx * vx + vy * vy)
 
 class Smoother:
     """Smoothing for ball positions"""
