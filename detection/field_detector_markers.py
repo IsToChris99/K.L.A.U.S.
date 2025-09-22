@@ -13,10 +13,18 @@ from config import (
 
 class FieldDetector:
     """Automatic field detection with calibration"""
-    def __init__(self):
-
-        self.field_lower = FIELD_MARKER_LOWER
-        self.field_upper = FIELD_MARKER_UPPER
+    def __init__(self, color_config_path=None):
+        # Color configuration path
+        if color_config_path is None:
+            color_config_path = os.path.join(os.path.dirname(__file__), "colors.json")
+        self.color_config_path = color_config_path
+        
+        # Load field marker colors from JSON or use fallback from config
+        self.load_field_colors()
+        
+        # File modification timestamp for auto-reload
+        self.last_modified = 0
+        self.auto_reload = True
 
         # self.goal_lower = GOAL_LOWER
         # self.goal_upper = GOAL_UPPER
@@ -51,6 +59,58 @@ class FieldDetector:
 
         self.counter = 0
 
+    def load_field_colors(self):
+        """Loads the field marker color configuration from the JSON file"""
+        try:
+            with open(self.color_config_path, "r") as f:
+                data = json.load(f)
+            
+            # Check for both 'corners' and 'field' keys for backward compatibility
+            field_ranges = data.get("corners", {}).get("ranges", [])
+            if not field_ranges:
+                field_ranges = data.get("field", {}).get("ranges", [])
+            
+            self.field_ranges = field_ranges
+            
+            # Update timestamp for auto-reload
+            self.last_modified = os.path.getmtime(self.color_config_path)
+            
+            if self.field_ranges:
+                print(f"Field marker colors loaded from JSON: {len(self.field_ranges)} color ranges")
+            else:
+                print("No field marker colors found in JSON, using config.py fallback")
+                # Fallback to config.py values
+                self.field_ranges = [{"lower": list(FIELD_MARKER_LOWER), "upper": list(FIELD_MARKER_UPPER)}]
+                
+        except Exception as e:
+            print(f"Error loading field marker colors from JSON: {e}")
+            print("Using config.py fallback values")
+            # Fallback to config.py values
+            self.field_ranges = [{"lower": list(FIELD_MARKER_LOWER), "upper": list(FIELD_MARKER_UPPER)}]
+    
+    def check_and_reload_colors(self):
+        """Checks if the colors.json file has been changed and reloads field marker colors"""
+        if not self.auto_reload:
+            return
+            
+        try:
+            current_modified = os.path.getmtime(self.color_config_path)
+            if current_modified > self.last_modified:
+                print("colors.json has been changed - reloading field marker colors...")
+                self.load_field_colors()
+        except Exception as e:
+            print(f"Error checking file modification: {e}")
+
+    def create_field_marker_mask(self, hsv):
+        """Creates a mask for field marker detection using all defined color ranges"""
+        mask = np.zeros(hsv.shape[:2], dtype=np.uint8)
+        for range_data in self.field_ranges:
+            lower = np.array(range_data["lower"], dtype=np.uint8)
+            upper = np.array(range_data["upper"], dtype=np.uint8)
+            partial_mask = cv2.inRange(hsv, lower, upper)
+            mask = cv2.bitwise_or(mask, partial_mask)
+        return mask
+
     def reset_calibration(self):
         """Resets the field detector to initial state"""
         # Field properties zurücksetzen
@@ -75,11 +135,13 @@ class FieldDetector:
 
     def detect_field(self, frame):
         """Detects field and returns contours"""
+        # Check for color configuration updates
+        self.check_and_reload_colors()
 
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
     
-        # Maske für grüne Marker erstellen
-        self.marker_mask = cv2.inRange(hsv, self.field_lower, self.field_upper)
+        # Use the new method to create mask with all field marker color ranges
+        self.marker_mask = self.create_field_marker_mask(hsv)
 
         # Morphologische Operationen anwenden (verwende vorkompilierte Kernel)
         self.marker_mask = cv2.morphologyEx(self.marker_mask, cv2.MORPH_CLOSE, self.kernel_close)
