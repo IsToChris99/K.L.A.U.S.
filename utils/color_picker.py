@@ -165,7 +165,7 @@ class ColorPicker(QWidget):
             self.process_single_pixel(event.position().toPoint())
         else:
             self.process_roi()
-        #self.update_display()
+        self.update_display()
 
     def paintEvent(self, event):
         super().paintEvent(event)
@@ -334,7 +334,7 @@ class ColorPicker(QWidget):
             print(f"Corners color picked: {tuple(hsv_color_list)}")
             # self.undo_stack.append(self.picked_colors_corners)
         self.compute_hsv_ranges()
-        #self.update_display()
+        self.update_display()
 
     def set_team1(self):
         self.current_calibration = 1
