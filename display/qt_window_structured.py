@@ -16,15 +16,8 @@ from .components.visualization_engine import VisualizationEngine
 from .components.event_handlers import EventHandlers
 from processing.cpu_preprocessor import CPUPreprocessor
 from processing.gpu_preprocessor import GPUPreprocessor
+from utils.color_picker import ColorPicker
 
-# Import ColorPicker from utils
-try:
-    from utils.color_picker import ColorPicker
-    COLORPICKER_AVAILABLE = True
-except ImportError as e:
-    print(f"Warning: ColorPicker could not be imported from utils: {e}")
-    COLORPICKER_AVAILABLE = False
-    ColorPicker = None
 
 
 class KickerMainWindow(QMainWindow):
@@ -366,11 +359,6 @@ class KickerMainWindow(QMainWindow):
         try:
             # Debugging-Info
             self.add_log_message("Button clicked: save_frame_and_open_colorpicker")
-            
-            # Prüfe ob ColorPicker verfügbar ist
-            if not COLORPICKER_AVAILABLE:
-                self.add_log_message("Error: ColorPicker is not available - import failed")
-                return
             
             if self.current_display_frame is None:
                 self.add_log_message("No frame available for ColorPicker")
