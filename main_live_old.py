@@ -17,6 +17,7 @@ from processing.cpu_preprocessor import CPUPreprocessor
 from processing.gpu_preprocessor import GPUPreprocessor
 from analysis.ball_speed import calculate_ball_speed
 import config
+from analysis.heatmap_generator import create_heatmap_from_points
 
 # ================== COMBINED TRACKER ==================
 
@@ -743,6 +744,19 @@ class CombinedTracker:
             cv2.destroyAllWindows()
             
             print(f"\nCombined Tracker finished.")
+
+            #Für Heatmap
+            print("\nLive session ended. Preparing heatmap data...")
+
+            if self.ball_tracker.all_ball_positions:
+                heatmap_dimensions = (config.DETECTION_WIDTH, config.DETECTION_HEIGHT)
+                create_heatmap_from_points(
+                    points=self.ball_tracker.all_ball_positions,
+                    dimensions=heatmap_dimensions,
+                    output_path="results/live_heatmap.png" # Puedes cambiar la ruta de guardado aquí
+                )
+            else:
+                print("No ball positions were recorded, skipping heatmap generation.")
 
 
 # ================== MAIN PROGRAM ==================
