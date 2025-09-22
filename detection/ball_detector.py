@@ -1,5 +1,7 @@
 import cv2
 import numpy as np
+import json
+import os
 from collections import deque
 from config import (
     BALL_LOWER, BALL_UPPER,
@@ -10,10 +12,18 @@ from config import (
 
 class BallDetector:
     """Main class for ball tracking"""
-    def __init__(self):
-
-        self.lower = BALL_LOWER
-        self.upper = BALL_UPPER
+    def __init__(self, color_config_path=None):
+        # Color configuration path
+        if color_config_path is None:
+            color_config_path = os.path.join(os.path.dirname(__file__), "colors.json")
+        self.color_config_path = color_config_path
+        
+        # Load ball colors from JSON or use fallback from config
+        self.load_ball_colors()
+        
+        # File modification timestamp for auto-reload
+        self.last_modified = 0
+        self.auto_reload = True
 
         self.display_interval = 1.0 / DISPLAY_FPS
 
@@ -35,11 +45,61 @@ class BallDetector:
 
         pass
 
+    def load_ball_colors(self):
+        """Loads the ball color configuration from the JSON file"""
+        try:
+            with open(self.color_config_path, "r") as f:
+                data = json.load(f)
+            self.ball_ranges = data.get("ball", {}).get("ranges", [])
+            
+            # Update timestamp for auto-reload
+            self.last_modified = os.path.getmtime(self.color_config_path)
+            
+            if self.ball_ranges:
+                print(f"Ball colors loaded from JSON: {len(self.ball_ranges)} color ranges")
+            else:
+                print("No ball colors found in JSON, using config.py fallback")
+                # Fallback to config.py values
+                self.ball_ranges = [{"lower": list(BALL_LOWER), "upper": list(BALL_UPPER)}]
+                
+        except Exception as e:
+            print(f"Error loading ball colors from JSON: {e}")
+            print("Using config.py fallback values")
+            # Fallback to config.py values
+            self.ball_ranges = [{"lower": list(BALL_LOWER), "upper": list(BALL_UPPER)}]
+    
+    def check_and_reload_colors(self):
+        """Checks if the colors.json file has been changed and reloads ball colors"""
+        if not self.auto_reload:
+            return
+            
+        try:
+            current_modified = os.path.getmtime(self.color_config_path)
+            if current_modified > self.last_modified:
+                print("colors.json has been changed - reloading ball colors...")
+                self.load_ball_colors()
+        except Exception as e:
+            print(f"Error checking file modification: {e}")
+
+    def create_ball_mask(self, hsv):
+        """Creates a mask for ball detection using all defined color ranges"""
+        mask = np.zeros(hsv.shape[:2], dtype=np.uint8)
+        for range_data in self.ball_ranges:
+            lower = np.array(range_data["lower"], dtype=np.uint8)
+            upper = np.array(range_data["upper"], dtype=np.uint8)
+            partial_mask = cv2.inRange(hsv, lower, upper)
+            mask = cv2.bitwise_or(mask, partial_mask)
+        return mask
+
     def detect_ball(self, frame, field_corners=None):
         """Ball detection with multi-criteria evaluation"""
+        # Check for color configuration updates
+        self.check_and_reload_colors()
+        
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
 
-        mask = cv2.inRange(hsv, self.lower, self.upper)
+        # Use the new method to create mask with all ball color ranges
+        mask = self.create_ball_mask(hsv)
         
         # When field corners are provided, create a mask for the field area
         if field_corners is not None:
@@ -154,8 +214,9 @@ class BallDetector:
                    max(0, int(x-radius)):min(frame.shape[1], int(x+radius))]
         if roi.size > 0:
             hsv_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
-            color_pixels = cv2.inRange(hsv_roi, self.lower, self.upper)
-            color_ratio = np.sum(color_pixels > 0) / color_pixels.size
+            # Use the new method to create mask for color evaluation
+            color_mask = self.create_ball_mask(hsv_roi)
+            color_ratio = np.sum(color_mask > 0) / color_mask.size
             score += 10 * color_ratio
 
         return score, center, radius
