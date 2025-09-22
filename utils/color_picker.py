@@ -64,7 +64,19 @@ class ColorPicker(QWidget):
         self.corners_btn.clicked.connect(self.set_corners)
 
         #self.toggle_mask_btn = QPushButton("Show Mask (off)", self)
-        #self.toggle_mask_btn.clicked.connect(self.toggle_mask_view)       
+        #self.toggle_mask_btn.clicked.connect(self.toggle_mask_view) 
+
+        self.reset_team1_btn = QPushButton("Reset", self)
+        self.reset_team1_btn.clicked.connect(self.reset_team1)
+
+        self.reset_team2_btn = QPushButton("Reset", self)
+        self.reset_team2_btn.clicked.connect(self.reset_team2)
+        
+        self.reset_ball_btn = QPushButton("Reset", self)
+        self.reset_ball_btn.clicked.connect(self.reset_ball)
+        
+        self.reset_corners_btn = QPushButton("Reset", self)
+        self.reset_corners_btn.clicked.connect(self.reset_corners)      
 
         self.done_btn = QPushButton("Calculate", self)
         self.done_btn.clicked.connect(self.compute_hsv_ranges)
@@ -72,23 +84,64 @@ class ColorPicker(QWidget):
         self.save_btn = QPushButton("Save", self)
         self.save_btn.clicked.connect(self.save_json)
 
+        # main_layout = QVBoxLayout()
+        # main_layout.addWidget(self.label)
+
+        # # Erstelle ein horizontales Layout für Info-Text und Checkbox
+        # info_layout = QHBoxLayout()
+        # info_layout.addWidget(self.info) # Info-Text links
+        # info_layout.addStretch() # Fügt einen dehnbaren Leerraum hinzu
+        # info_layout.addWidget(self.mask_checkbox) # Checkbox rechts
+
+        # # Füge das horizontale Layout zum Haupt-Layout hinzu
+        # main_layout.addLayout(info_layout)
+
+        # # Füge die restlichen Buttons hinzu
+        # main_layout.addWidget(self.team1_btn)
+        # main_layout.addWidget(self.team2_btn)
+        # main_layout.addWidget(self.ball_btn)
+        # main_layout.addWidget(self.corners_btn)
+        # main_layout.addWidget(self.done_btn)
+        # main_layout.addWidget(self.save_btn)
+        
+        # self.setLayout(main_layout)
+
+        # --- KOMPLETT NEUES LAYOUT ---
         main_layout = QVBoxLayout()
         main_layout.addWidget(self.label)
 
-        # Erstelle ein horizontales Layout für Info-Text und Checkbox
+        # Zeile für Info-Text und Checkbox
         info_layout = QHBoxLayout()
-        info_layout.addWidget(self.info) # Info-Text links
-        info_layout.addStretch() # Fügt einen dehnbaren Leerraum hinzu
-        info_layout.addWidget(self.mask_checkbox) # Checkbox rechts
-
-        # Füge das horizontale Layout zum Haupt-Layout hinzu
+        info_layout.addWidget(self.info)
+        info_layout.addStretch()
+        info_layout.addWidget(self.mask_checkbox)
         main_layout.addLayout(info_layout)
 
+        # Zeile für Team 1 Buttons
+        team1_layout = QHBoxLayout()
+        team1_layout.addWidget(self.team1_btn)
+        team1_layout.addWidget(self.reset_team1_btn)
+        main_layout.addLayout(team1_layout)
+
+        # Zeile für Team 2 Buttons
+        team2_layout = QHBoxLayout()
+        team2_layout.addWidget(self.team2_btn)
+        team2_layout.addWidget(self.reset_team2_btn)
+        main_layout.addLayout(team2_layout)
+
+        # Zeile für Ball Buttons
+        ball_layout = QHBoxLayout()
+        ball_layout.addWidget(self.ball_btn)
+        ball_layout.addWidget(self.reset_ball_btn)
+        main_layout.addLayout(ball_layout)
+
+        # Zeile für Corners Buttons
+        corners_layout = QHBoxLayout()
+        corners_layout.addWidget(self.corners_btn)
+        corners_layout.addWidget(self.reset_corners_btn)
+        main_layout.addLayout(corners_layout)
+
         # Füge die restlichen Buttons hinzu
-        main_layout.addWidget(self.team1_btn)
-        main_layout.addWidget(self.team2_btn)
-        main_layout.addWidget(self.ball_btn)
-        main_layout.addWidget(self.corners_btn)
         main_layout.addWidget(self.done_btn)
         main_layout.addWidget(self.save_btn)
         
@@ -216,7 +269,7 @@ class ColorPicker(QWidget):
                 
                 # Erstelle ein farbiges Overlay (z.B. grün) für die Maske
                 overlay = np.zeros_like(self.display_image)
-                overlay[mask_resized > 0] = [0, 255, 0] # Grün für die erkannten Bereiche
+                overlay[mask_resized > 0] = [255, 0, 255] # Grün für die erkannten Bereiche
 
                 # Mische das Originalbild mit dem Overlay für einen transparenten Effekt
                 final_image = cv2.addWeighted(self.display_image, 1.0, overlay, 0.5, 0)
@@ -334,6 +387,35 @@ class ColorPicker(QWidget):
             print(f"Corners color picked: {tuple(hsv_color_list)}")
             # self.undo_stack.append(self.picked_colors_corners)
         self.compute_hsv_ranges()
+        self.update_display()
+
+    def reset_team1(self):
+        """Setzt alle ausgewählten Farben und Bereiche für Team 1 zurück."""
+        self.picked_colors_team1.clear()
+        self.hsv_ranges_team1.clear()
+        print("Team 1 colors have been reset.")
+        # Aktualisiere die Anzeige, um die gelöschte Maske zu zeigen
+        self.update_display()
+
+    def reset_team2(self):
+        """Setzt alle ausgewählten Farben und Bereiche für Team 2 zurück."""
+        self.picked_colors_team2.clear()
+        self.hsv_ranges_team2.clear()
+        print("Team 2 colors have been reset.")
+        self.update_display()
+
+    def reset_ball(self):
+        """Setzt alle ausgewählten Farben und Bereiche für den Ball zurück."""
+        self.picked_colors_ball.clear()
+        self.hsv_ranges_ball.clear()
+        print("Ball colors have been reset.")
+        self.update_display()
+
+    def reset_corners(self):
+        """Setzt alle ausgewählten Farben und Bereiche für die Ecken zurück."""
+        self.picked_colors_corners.clear()
+        self.hsv_ranges_corners.clear()
+        print("Corners colors have been reset.")
         self.update_display()
 
     def set_team1(self):
