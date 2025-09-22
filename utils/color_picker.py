@@ -156,7 +156,9 @@ class ColorPicker(QWidget):
     def on_mask_checkbox_changed(self, state):
         """Wird aufgerufen, wenn der Zustand der Checkbox geändert wird."""
         # Setze den Sichtbarkeits-Status basierend darauf, ob die Box angehakt ist
-        self.mask_visible = (state == Qt.CheckState.Checked)
+        # state ist ein Integer: 0=Unchecked, 2=Checked
+        self.mask_visible = bool(state)
+        print(f"Checkbox state: {state}, mask_visible: {self.mask_visible}")
         
         # Aktualisiere die Anzeige
         self.update_display()
@@ -260,6 +262,7 @@ class ColorPicker(QWidget):
     def update_display(self):
         """Aktualisiert das angezeigte Bild, zeigt bei Bedarf die Maske an."""
         if self.mask_visible:
+            print("Mask is visible-------------------------------------")
             # Erstelle die Maske nur, wenn sie auch angezeigt werden soll
             mask = self.create_combined_mask()
             
@@ -370,6 +373,17 @@ class ColorPicker(QWidget):
 
     def add_color(self, hsv_color_list):
         """Adds a picked color to the correct list and the undo stack."""
+        # Debug: Check the format and content
+        print(f"Adding color: {hsv_color_list}, type: {type(hsv_color_list)}, len: {len(hsv_color_list) if hasattr(hsv_color_list, '__len__') else 'N/A'}")
+        
+        # Ensure it's a proper 3-element list
+        if not isinstance(hsv_color_list, (list, tuple)) or len(hsv_color_list) != 3:
+            print(f"Warning: Invalid color format: {hsv_color_list}")
+            return
+            
+        # Convert to list of integers to ensure consistency
+        hsv_color_list = [int(x) for x in hsv_color_list]
+        
         if self.current_calibration == 1:
             self.picked_colors_team1.append(hsv_color_list)
             print(f"Team 1 color picked: {tuple(hsv_color_list)}")
@@ -438,7 +452,29 @@ class ColorPicker(QWidget):
         if not picked_colors:
             return []
 
-        picked_array = np.array(picked_colors)
+        # Debug: Check the content of picked_colors
+        print(f"Computing HSV range for colors: {picked_colors}")
+        for i, color in enumerate(picked_colors):
+            print(f"  Color {i}: {color}, type: {type(color)}, len: {len(color) if hasattr(color, '__len__') else 'N/A'}")
+
+        # Ensure all colors are proper 3-element lists
+        cleaned_colors = []
+        for color in picked_colors:
+            if isinstance(color, (list, tuple)) and len(color) == 3:
+                cleaned_colors.append([int(x) for x in color])
+            else:
+                print(f"Skipping invalid color: {color}")
+        
+        if not cleaned_colors:
+            print("No valid colors found after cleaning")
+            return []
+            
+        try:
+            picked_array = np.array(cleaned_colors)
+            print(f"Created array shape: {picked_array.shape}")
+        except Exception as e:
+            print(f"Error creating numpy array: {e}")
+            return []
         hues = picked_array[:, 0]
 
         # Separates Hue into two groups: "small" and "large" (due to cyclic Hue)
