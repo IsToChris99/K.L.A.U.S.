@@ -63,8 +63,8 @@ class ColorPicker(QWidget):
         self.corners_btn = QPushButton("Calibrate Corners", self)
         self.corners_btn.clicked.connect(self.set_corners)
 
-        self.toggle_mask_btn = QPushButton("Show Mask (off)", self)
-        self.toggle_mask_btn.clicked.connect(self.toggle_mask_view)       
+        #self.toggle_mask_btn = QPushButton("Show Mask (off)", self)
+        #self.toggle_mask_btn.clicked.connect(self.toggle_mask_view)       
 
         self.done_btn = QPushButton("Calculate", self)
         self.done_btn.clicked.connect(self.compute_hsv_ranges)
@@ -165,7 +165,7 @@ class ColorPicker(QWidget):
             self.process_single_pixel(event.position().toPoint())
         else:
             self.process_roi()
-        self.update_display()
+        #self.update_display()
 
     def paintEvent(self, event):
         super().paintEvent(event)
@@ -334,7 +334,7 @@ class ColorPicker(QWidget):
             print(f"Corners color picked: {tuple(hsv_color_list)}")
             # self.undo_stack.append(self.picked_colors_corners)
         self.compute_hsv_ranges()
-        self.update_display()
+        #self.update_display()
 
     def set_team1(self):
         self.current_calibration = 1
