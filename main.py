@@ -553,7 +553,6 @@ class ProcessingProcess(mp.Process):
             except Exception as e:
                 print(f"ERROR: Failed to forward white balance command: {e}")
 
-
     def toggle_processing_mode(self):
         """Toggle between CPU and GPU preprocessing"""
         self.use_gpu_processing = not self.use_gpu_processing

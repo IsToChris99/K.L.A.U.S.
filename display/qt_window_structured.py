@@ -18,8 +18,6 @@ from processing.cpu_preprocessor import CPUPreprocessor
 from processing.gpu_preprocessor import GPUPreprocessor
 from utils.color_picker import ColorPicker
 
-
-
 class KickerMainWindow(QMainWindow):
     """Hauptfenster der Kicker Klaus Anwendung für Multiprocessing-Architektur"""
     
@@ -339,15 +337,6 @@ class KickerMainWindow(QMainWindow):
     def get_current_max_goals(self):
         """Gibt die aktuellen max_goals zurück, die vom Hauptprozess empfangen wurden"""
         return self.current_max_goals
-    
-    def reload_player_colors(self):
-        """Lädt die Player-Farben neu über die Command Queue"""
-        try:
-            # Sende Kommando an den Verarbeitungsprozess
-            self.command_queue.put({'type': 'reload_player_colors'})
-            self.add_log_message("Player colors reload command sent")
-        except Exception as e:
-            self.add_log_message(f"Error reloading colors: {e}")
     
     # Event-Handler-Delegationen
     def toggle_processing_mode(self, checked):

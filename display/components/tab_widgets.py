@@ -62,7 +62,6 @@ class StatisticsTab(QWidget):
 
         self.setLayout(main_layout)
 
-
 class CalibrationTab(QWidget):
     """Calibration Tab - Grabs frame and saves as png"""
     
@@ -98,10 +97,10 @@ class CalibrationTab(QWidget):
         
         # Instruktionen
         instructions_label = QLabel("""
-        Use these tools to calibrate player colors and save frames for analysis:
+        Use these tools to calibrate colors and manage color configurations:
         
-        1. Save Frame & Open ColorPicker: Captures the current perspective-corrected frame and opens the color picker
-        2. Reload Player Colors: Reloads the color configuration from colors.json
+        1. Grab Frame & Open ColorPicker: Opens the color picker with the current display frame for color calibration
+        2. Reload Colors: Reloads all color configurations for Ball, Player, and Field detection from colors.json
         """)
         instructions_label.setWordWrap(True)
         instructions_label.setStyleSheet("""
@@ -142,27 +141,6 @@ class CalibrationTab(QWidget):
             }
         """)
         button_layout.addWidget(self.parent_window.save_frame_and_colorpicker_btn)
-        
-        # Player color reload button
-        self.parent_window.reload_player_colors_btn = QPushButton("Reload Player Colors")
-        self.parent_window.reload_player_colors_btn.setStyleSheet("""
-            QPushButton {
-                padding: 12px 20px;
-                background-color: #FF9800;
-                color: white;
-                border: none;
-                border-radius: 6px;
-                font-weight: bold;
-                font-size: 14px;
-            }
-            QPushButton:hover {
-                background-color: #F57C00;
-            }
-            QPushButton:pressed {
-                background-color: #E65100;
-            }
-        """)
-        button_layout.addWidget(self.parent_window.reload_player_colors_btn)
         
         calibration_layout.addWidget(button_container)
         calibration_layout.addStretch()
