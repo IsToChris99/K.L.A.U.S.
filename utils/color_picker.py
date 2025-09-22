@@ -160,7 +160,7 @@ class ColorPicker(QWidget):
         self.selecting = False
         #self.label.setPixmap(self.get_pixmap(self.display_image))
         
-        click_threshold = 3
+        click_threshold = 1
         if self.selection_rect.width() < click_threshold and self.selection_rect.height() < click_threshold:
             self.process_single_pixel(event.position().toPoint())
         else:
