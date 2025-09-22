@@ -22,13 +22,17 @@ class ColorPicker(QWidget):
         # Colors per team saved
         self.picked_colors_team1 = []
         self.picked_colors_team2 = []
+        self.picked_colors_ball = []
+        self.picked_colors_corners = []
 
         # HSV areas per team (list of (min, max))
         self.hsv_ranges_team1 = []
         self.hsv_ranges_team2 = []
+        self.hsv_ranges_ball = []
+        self.hsv_ranges_corners = []
 
         # Current team: 1 or 2
-        self.current_team = 1
+        self.current_calibration = 1
 
         self.label = QLabel(self)
         self.label.setPixmap(self.get_pixmap(self.display_image))
@@ -48,6 +52,12 @@ class ColorPicker(QWidget):
         self.team2_btn = QPushButton("Calibrate Team 2", self)
         self.team2_btn.clicked.connect(self.set_team2)
 
+        self.ball_btn = QPushButton("Calibrate Ball", self)
+        self.ball_btn.clicked.connect(self.set_ball)
+
+        self.corners_btn = QPushButton("Calibrate Corners", self)
+        self.corners_btn.clicked.connect(self.set_corners)        
+
         self.done_btn = QPushButton("Calculate", self)
         self.done_btn.clicked.connect(self.compute_hsv_ranges)
 
@@ -59,6 +69,8 @@ class ColorPicker(QWidget):
         layout.addWidget(self.info)
         layout.addWidget(self.team1_btn)
         layout.addWidget(self.team2_btn)
+        layout.addWidget(self.ball_btn)
+        layout.addWidget(self.corners_btn)
         layout.addWidget(self.done_btn)
         layout.addWidget(self.save_btn)
         self.setLayout(layout)
@@ -73,6 +85,7 @@ class ColorPicker(QWidget):
         self.selecting = True
         self.start_point = event.position().toPoint()
         self.selection_rect = QRect()
+        #self.label.setPixmap(self.get_pixmap(self.display_image))
 
     def update_selection(self, event):
         if self.selecting:
@@ -81,6 +94,7 @@ class ColorPicker(QWidget):
 
     def finish_selection(self, event):
         self.selecting = False
+        #self.label.setPixmap(self.get_pixmap(self.display_image))
         if self.selection_rect.width() < 5 or self.selection_rect.height() < 5:
             print("Selection too small.")
             return
@@ -156,20 +170,34 @@ class ColorPicker(QWidget):
 
         dominant_color = np.average(dominant_colors, axis=0, weights=weights).astype(int)
 
-        if self.current_team == 1:
+        if self.current_calibration == 1:
             self.picked_colors_team1.append(dominant_color.tolist())
             print(f"Team 1 color picked: {tuple(dominant_color)}")
-        else:
+        elif self.current_calibration == 2:
             self.picked_colors_team2.append(dominant_color.tolist())
             print(f"Team 2 color picked: {tuple(dominant_color)}")
+        elif self.current_calibration == 3:
+            self.picked_colors_ball.append(dominant_color.tolist())
+            print(f"Ball color picked: {tuple(dominant_color)}")
+        elif self.current_calibration == 4:
+            self.picked_colors_corners.append(dominant_color.tolist())
+            print(f"Corners color picked: {tuple(dominant_color)}")
 
     def set_team1(self):
-        self.current_team = 1
+        self.current_calibration = 1
         self.info.setText("Calibrate Team 1: Select colors")
 
     def set_team2(self):
-        self.current_team = 2
+        self.current_calibration = 2
         self.info.setText("Calibrate Team 2: Select colors")
+
+    def set_ball(self):
+        self.current_calibration = 3
+        self.info.setText("Calibrate Ball: Select colors")
+
+    def set_corners(self):
+        self.current_calibration = 4
+        self.info.setText("Calibrate Corners: Select colors")
 
     def compute_hsv_range_for_team(self, picked_colors):
         if not picked_colors:
@@ -208,6 +236,8 @@ class ColorPicker(QWidget):
     def compute_hsv_ranges(self):
         self.hsv_ranges_team1 = self.compute_hsv_range_for_team(self.picked_colors_team1)
         self.hsv_ranges_team2 = self.compute_hsv_range_for_team(self.picked_colors_team2)
+        self.hsv_ranges_ball = self.compute_hsv_range_for_team(self.picked_colors_ball)
+        self.hsv_ranges_corners = self.compute_hsv_range_for_team(self.picked_colors_corners)
 
         if self.hsv_ranges_team1:
             for i, (min_hsv, max_hsv) in enumerate(self.hsv_ranges_team1):
@@ -221,6 +251,18 @@ class ColorPicker(QWidget):
         else:
             print("Team 2 HSV area could not be calculated.")
 
+        if self.hsv_ranges_ball:
+            for i, (min_hsv, max_hsv) in enumerate(self.hsv_ranges_ball):
+                print(f"Ball HSV area {i+1}: {min_hsv} - {max_hsv}")
+        else:
+            print("Ball HSV area could not be calculated.")
+
+        if self.hsv_ranges_corners:
+            for i, (min_hsv, max_hsv) in enumerate(self.hsv_ranges_corners):
+                print(f"Corners HSV area {i+1}: {min_hsv} - {max_hsv}")
+        else:
+            print("Corners HSV area could not be calculated.")
+
     def save_json(self):
         config = {}
         if self.hsv_ranges_team1:
@@ -230,6 +272,14 @@ class ColorPicker(QWidget):
         if self.hsv_ranges_team2:
             config["team2"] = {
                 "ranges": [{"lower": r[0].tolist(), "upper": r[1].tolist()} for r in self.hsv_ranges_team2]
+            }
+        if self.hsv_ranges_ball:
+            config["ball"] = {
+                "ranges": [{"lower": r[0].tolist(), "upper": r[1].tolist()} for r in self.hsv_ranges_ball]
+            }
+        if self.hsv_ranges_corners:
+            config["corners"] = {
+                "ranges": [{"lower": r[0].tolist(), "upper": r[1].tolist()} for r in self.hsv_ranges_corners]
             }
 
         project_folder = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
