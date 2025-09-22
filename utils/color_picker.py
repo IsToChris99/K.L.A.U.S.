@@ -269,7 +269,7 @@ class ColorPicker(QWidget):
                 
                 # Erstelle ein farbiges Overlay (z.B. grün) für die Maske
                 overlay = np.zeros_like(self.display_image)
-                overlay[mask_resized > 0] = [0, 255, 0] # Grün für die erkannten Bereiche
+                overlay[mask_resized > 0] = [255, 0, 255] # Grün für die erkannten Bereiche
 
                 # Mische das Originalbild mit dem Overlay für einen transparenten Effekt
                 final_image = cv2.addWeighted(self.display_image, 1.0, overlay, 0.5, 0)
