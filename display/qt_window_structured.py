@@ -362,7 +362,7 @@ class KickerMainWindow(QMainWindow):
         self.event_handlers.toggle_processing_mode(checked)
     
     def save_frame_and_open_colorpicker(self):
-        """Speichert den aktuellen Frame als PNG und öffnet den ColorPicker"""
+        """Öffnet den ColorPicker mit dem aktuellen Display-Frame"""
         try:
             # Debugging-Info
             self.add_log_message("Button clicked: save_frame_and_open_colorpicker")
@@ -373,43 +373,22 @@ class KickerMainWindow(QMainWindow):
                 return
             
             if self.current_display_frame is None:
-                self.add_log_message("No frame available to save")
+                self.add_log_message("No frame available for ColorPicker")
                 return
             
-            # Erstelle utils Ordner falls er nicht existiert
-            utils_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "utils")
-            if not os.path.exists(utils_dir):
-                os.makedirs(utils_dir)
-                self.add_log_message(f"Created utils directory: {utils_dir}")
-            
-            filename = f"captured_frame.png"
-            filepath = os.path.join(utils_dir, filename)
-            
-            # Speichere Frame als PNG
-            success = cv2.imwrite(filepath, self.current_display_frame)
-            
-            if success:
-                self.add_log_message(f"Frame saved successfully as: {filename}")
+            # Öffne ColorPicker direkt mit dem aktuellen Display-Frame
+            try:
+                self.add_log_message("Opening ColorPicker with current display frame")
+                # Erstelle und zeige ColorPicker direkt mit dem aktuellen Frame
+                self.color_picker_window = ColorPicker(frame=self.current_display_frame)
+                self.color_picker_window.show()
+                self.add_log_message("ColorPicker window created and shown successfully")
                 
-                # Öffne ColorPicker mit dem gespeicherten Frame
-                try:
-                    # Lade das Bild für den ColorPicker
-                    frame_for_picker = cv2.imread(filepath)
-                    if frame_for_picker is not None:
-                        self.add_log_message("Frame loaded successfully for ColorPicker")
-                        # Erstelle und zeige ColorPicker
-                        self.color_picker_window = ColorPicker(frame=frame_for_picker)
-                        self.color_picker_window.show()
-                        self.add_log_message("ColorPicker window created and shown")
-                    else:
-                        self.add_log_message("Error: Could not load saved frame for ColorPicker")
-                except Exception as e:
-                    self.add_log_message(f"Error opening ColorPicker: {str(e)}")
-                    print(f"ColorPicker error details: {str(e)}")
-                    import traceback
-                    traceback.print_exc()
-            else:
-                self.add_log_message("Error: Failed to save frame")
+            except Exception as e:
+                self.add_log_message(f"Error opening ColorPicker: {str(e)}")
+                print(f"ColorPicker error details: {str(e)}")
+                import traceback
+                traceback.print_exc()
                 
         except Exception as e:
             self.add_log_message(f"Error in save_frame_and_open_colorpicker: {str(e)}")
