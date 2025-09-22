@@ -64,7 +64,19 @@ class ColorPicker(QWidget):
         self.corners_btn.clicked.connect(self.set_corners)
 
         #self.toggle_mask_btn = QPushButton("Show Mask (off)", self)
-        #self.toggle_mask_btn.clicked.connect(self.toggle_mask_view)       
+        #self.toggle_mask_btn.clicked.connect(self.toggle_mask_view) 
+
+        self.reset_team1_btn = QPushButton("Reset", self)
+        self.reset_team1_btn.clicked.connect(self.reset_team1)
+
+        self.reset_team2_btn = QPushButton("Reset", self)
+        self.reset_team2_btn.clicked.connect(self.reset_team2)
+        
+        self.reset_ball_btn = QPushButton("Reset", self)
+        self.reset_ball_btn.clicked.connect(self.reset_ball)
+        
+        self.reset_corners_btn = QPushButton("Reset", self)
+        self.reset_corners_btn.clicked.connect(self.reset_corners)      
 
         self.done_btn = QPushButton("Calculate", self)
         self.done_btn.clicked.connect(self.compute_hsv_ranges)
