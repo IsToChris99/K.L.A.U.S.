@@ -43,6 +43,8 @@ class ColorPicker(QWidget):
         self.selection_rect = QRect()
         self.selecting = False
 
+        self.mask_visible = False
+
         self.info = QLabel("Click and drag to pick colors (Team 1)", self)
 
         # Buttons
@@ -56,7 +58,10 @@ class ColorPicker(QWidget):
         self.ball_btn.clicked.connect(self.set_ball)
 
         self.corners_btn = QPushButton("Calibrate Corners", self)
-        self.corners_btn.clicked.connect(self.set_corners)        
+        self.corners_btn.clicked.connect(self.set_corners)
+
+        self.toggle_mask_btn = QPushButton("Show Mask (off)", self)
+        self.toggle_mask_btn.clicked.connect(self.toggle_mask_view)       
 
         self.done_btn = QPushButton("Calculate", self)
         self.done_btn.clicked.connect(self.compute_hsv_ranges)
@@ -71,6 +76,7 @@ class ColorPicker(QWidget):
         layout.addWidget(self.team2_btn)
         layout.addWidget(self.ball_btn)
         layout.addWidget(self.corners_btn)
+        layout.addWidget(self.toggle_mask_btn) 
         layout.addWidget(self.done_btn)
         layout.addWidget(self.save_btn)
         self.setLayout(layout)
@@ -131,16 +137,73 @@ class ColorPicker(QWidget):
 
     def finish_selection(self, event):
         self.selecting = False
-        self.label.setPixmap(self.get_pixmap(self.display_image))
+        #self.label.setPixmap(self.get_pixmap(self.display_image))
         
         click_threshold = 3
         if self.selection_rect.width() < click_threshold and self.selection_rect.height() < click_threshold:
             self.process_single_pixel(event.position().toPoint())
         else:
             self.process_roi()
+        self.update_display()
 
     def paintEvent(self, event):
         super().paintEvent(event)
+
+    def toggle_mask_view(self):
+        """Schaltet die Sichtbarkeit der Masken-Vorschau um."""
+        self.mask_visible = not self.mask_visible
+        
+        # Aktualisiere den Button-Text, um den aktuellen Zustand anzuzeigen
+        if self.mask_visible:
+            self.toggle_mask_btn.setText("Show Mask (on)")
+        else:
+            self.toggle_mask_btn.setText("Show Mask (off)")
+        
+        # Aktualisiere die Anzeige, um die Änderung sofort sichtbar zu machen
+        self.update_display()
+
+    def create_combined_mask(self):
+        """Erstellt eine kombinierte Maske aus allen kalibrierten HSV-Bereichen."""
+        hsv_image = cv2.cvtColor(self.original_image, cv2.COLOR_BGR2HSV)
+        combined_mask = np.zeros(hsv_image.shape[:2], dtype=np.uint8)
+
+        # Sammle alle definierten HSV-Bereiche
+        all_ranges = self.hsv_ranges_team1 + self.hsv_ranges_team2 + self.hsv_ranges_ball + self.hsv_ranges_corners
+        
+        if not all_ranges:
+            return None # Gibt nichts zurück, wenn keine Bereiche definiert sind
+
+        for min_hsv, max_hsv in all_ranges:
+            lower_bound = np.array(min_hsv)
+            upper_bound = np.array(max_hsv)
+            
+            # Erstelle eine Maske für den aktuellen Bereich und füge sie zur Gesamtmaske hinzu
+            partial_mask = cv2.inRange(hsv_image, lower_bound, upper_bound)
+            combined_mask = cv2.bitwise_or(combined_mask, partial_mask)
+            
+        return combined_mask
+
+    def update_display(self):
+        """Aktualisiert das angezeigte Bild, zeigt bei Bedarf die Maske an."""
+        if self.mask_visible:
+            # Erstelle die Maske nur, wenn sie auch angezeigt werden soll
+            mask = self.create_combined_mask()
+            
+            if mask is not None:
+                # Skaliere die Maske auf die Anzeigegröße
+                mask_resized = cv2.resize(mask, (self.display_image.shape[1], self.display_image.shape[0]))
+                
+                # Erstelle ein farbiges Overlay (z.B. grün) für die Maske
+                overlay = np.zeros_like(self.display_image)
+                overlay[mask_resized > 0] = [0, 255, 0] # Grün für die erkannten Bereiche
+
+                # Mische das Originalbild mit dem Overlay für einen transparenten Effekt
+                final_image = cv2.addWeighted(self.display_image, 1.0, overlay, 0.5, 0)
+                self.label.setPixmap(self.get_pixmap(final_image))
+                return
+
+        # Wenn die Maske nicht sichtbar ist oder keine Bereiche definiert sind, zeige das Originalbild
+        self.label.setPixmap(self.get_pixmap(self.display_image))
 
     def process_roi(self):
         x = int(self.selection_rect.x() / self.scale_factor)
@@ -249,6 +312,8 @@ class ColorPicker(QWidget):
             self.picked_colors_corners.append(hsv_color_list)
             print(f"Corners color picked: {tuple(hsv_color_list)}")
             # self.undo_stack.append(self.picked_colors_corners)
+        self.compute_hsv_ranges()
+        self.update_display()
 
     def set_team1(self):
         self.current_calibration = 1
