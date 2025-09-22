@@ -4,7 +4,7 @@ import numpy as np
 import json
 import os
 from PySide6.QtWidgets import (
-    QApplication, QLabel, QPushButton, QFileDialog, QVBoxLayout, QWidget, QInputDialog
+    QApplication, QLabel, QPushButton, QFileDialog, QVBoxLayout, QWidget, QInputDialog, QCheckBox, QHBoxLayout
 )
 from PySide6.QtGui import QPixmap, QImage, QPainter, QColor, QPen
 from PySide6.QtCore import Qt, QRect
@@ -48,6 +48,9 @@ class ColorPicker(QWidget):
         self.info = QLabel("Click and drag to pick colors (Team 1)", self)
 
         # Buttons
+        self.mask_checkbox = QCheckBox("Show Mask", self)
+        self.mask_checkbox.stateChanged.connect(self.on_mask_checkbox_changed)
+
         self.team1_btn = QPushButton("Calibrate Team 1", self)
         self.team1_btn.clicked.connect(self.set_team1)
 
@@ -69,23 +72,41 @@ class ColorPicker(QWidget):
         self.save_btn = QPushButton("Save", self)
         self.save_btn.clicked.connect(self.save_json)
 
-        layout = QVBoxLayout()
-        layout.addWidget(self.label)
-        layout.addWidget(self.info)
-        layout.addWidget(self.team1_btn)
-        layout.addWidget(self.team2_btn)
-        layout.addWidget(self.ball_btn)
-        layout.addWidget(self.corners_btn)
-        layout.addWidget(self.toggle_mask_btn) 
-        layout.addWidget(self.done_btn)
-        layout.addWidget(self.save_btn)
-        self.setLayout(layout)
+        main_layout = QVBoxLayout()
+        main_layout.addWidget(self.label)
+
+        # Erstelle ein horizontales Layout für Info-Text und Checkbox
+        info_layout = QHBoxLayout()
+        info_layout.addWidget(self.info) # Info-Text links
+        info_layout.addStretch() # Fügt einen dehnbaren Leerraum hinzu
+        info_layout.addWidget(self.mask_checkbox) # Checkbox rechts
+
+        # Füge das horizontale Layout zum Haupt-Layout hinzu
+        main_layout.addLayout(info_layout)
+
+        # Füge die restlichen Buttons hinzu
+        main_layout.addWidget(self.team1_btn)
+        main_layout.addWidget(self.team2_btn)
+        main_layout.addWidget(self.ball_btn)
+        main_layout.addWidget(self.corners_btn)
+        main_layout.addWidget(self.done_btn)
+        main_layout.addWidget(self.save_btn)
+        
+        self.setLayout(main_layout)
 
     def get_pixmap(self, img):
         rgb_image = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         h, w, ch = rgb_image.shape
         bytes_per_line = ch * w
         return QPixmap.fromImage(QImage(rgb_image.data, w, h, bytes_per_line, QImage.Format_RGB888))
+    
+    def on_mask_checkbox_changed(self, state):
+        """Wird aufgerufen, wenn der Zustand der Checkbox geändert wird."""
+        # Setze den Sichtbarkeits-Status basierend darauf, ob die Box angehakt ist
+        self.mask_visible = (state == Qt.CheckState.Checked)
+        
+        # Aktualisiere die Anzeige
+        self.update_display()
 
     # def start_selection(self, event):
     #     self.selecting = True
@@ -149,18 +170,18 @@ class ColorPicker(QWidget):
     def paintEvent(self, event):
         super().paintEvent(event)
 
-    def toggle_mask_view(self):
-        """Schaltet die Sichtbarkeit der Masken-Vorschau um."""
-        self.mask_visible = not self.mask_visible
+    # def toggle_mask_view(self):
+    #     """Schaltet die Sichtbarkeit der Masken-Vorschau um."""
+    #     self.mask_visible = not self.mask_visible
         
-        # Aktualisiere den Button-Text, um den aktuellen Zustand anzuzeigen
-        if self.mask_visible:
-            self.toggle_mask_btn.setText("Show Mask (on)")
-        else:
-            self.toggle_mask_btn.setText("Show Mask (off)")
+    #     # Aktualisiere den Button-Text, um den aktuellen Zustand anzuzeigen
+    #     if self.mask_visible:
+    #         self.toggle_mask_btn.setText("Show Mask (on)")
+    #     else:
+    #         self.toggle_mask_btn.setText("Show Mask (off)")
         
-        # Aktualisiere die Anzeige, um die Änderung sofort sichtbar zu machen
-        self.update_display()
+    #     # Aktualisiere die Anzeige, um die Änderung sofort sichtbar zu machen
+    #     self.update_display()
 
     def create_combined_mask(self):
         """Erstellt eine kombinierte Maske aus allen kalibrierten HSV-Bereichen."""
