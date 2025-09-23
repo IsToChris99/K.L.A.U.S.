@@ -207,8 +207,7 @@ class CombinedTracker:
                         'detection': detection_result,
                         'smoothed_pts': list(self.ball_tracker.smoothed_pts),
                         'missing_counter': self.ball_tracker.missing_counter,
-                        'ball_speed': self.ball_speed,
-                        'max_recent_speed': self.ball_speed_calculator.get_max_recent_speed()
+                        'ball_speed': self.ball_speed
                     }
                     
             
