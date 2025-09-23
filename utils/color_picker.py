@@ -63,9 +63,6 @@ class ColorPicker(QWidget):
         self.corners_btn = QPushButton("Calibrate Corners", self)
         self.corners_btn.clicked.connect(self.set_corners)
 
-        #self.toggle_mask_btn = QPushButton("Show Mask (off)", self)
-        #self.toggle_mask_btn.clicked.connect(self.toggle_mask_view) 
-
         self.reset_team1_btn = QPushButton("Reset", self)
         self.reset_team1_btn.clicked.connect(self.reset_team1)
 
@@ -78,76 +75,51 @@ class ColorPicker(QWidget):
         self.reset_corners_btn = QPushButton("Reset", self)
         self.reset_corners_btn.clicked.connect(self.reset_corners)      
 
-        #self.done_btn = QPushButton("Calculate", self)
-        #self.done_btn.clicked.connect(self.compute_hsv_ranges)
-
         self.save_btn = QPushButton("Save", self)
         self.save_btn.clicked.connect(self.save_json)
 
-        # main_layout = QVBoxLayout()
-        # main_layout.addWidget(self.label)
-
-        # # Erstelle ein horizontales Layout für Info-Text und Checkbox
-        # info_layout = QHBoxLayout()
-        # info_layout.addWidget(self.info) # Info-Text links
-        # info_layout.addStretch() # Fügt einen dehnbaren Leerraum hinzu
-        # info_layout.addWidget(self.mask_checkbox) # Checkbox rechts
-
-        # # Füge das horizontale Layout zum Haupt-Layout hinzu
-        # main_layout.addLayout(info_layout)
-
-        # # Füge die restlichen Buttons hinzu
-        # main_layout.addWidget(self.team1_btn)
-        # main_layout.addWidget(self.team2_btn)
-        # main_layout.addWidget(self.ball_btn)
-        # main_layout.addWidget(self.corners_btn)
-        # main_layout.addWidget(self.done_btn)
-        # main_layout.addWidget(self.save_btn)
-        
-        # self.setLayout(main_layout)
-
-        # --- KOMPLETT NEUES LAYOUT ---
+        # LAYOUT
         main_layout = QVBoxLayout()
         main_layout.addWidget(self.label)
 
-        # Zeile für Info-Text und Checkbox
+        # Info-Text and Checkbox
         info_layout = QHBoxLayout()
         info_layout.addWidget(self.info)
         info_layout.addStretch()
         info_layout.addWidget(self.mask_checkbox)
         main_layout.addLayout(info_layout)
 
-        # Zeile für Team 1 Buttons
+        # Team 1 Buttons
         team1_layout = QHBoxLayout()
         team1_layout.addWidget(self.team1_btn)
         team1_layout.addWidget(self.reset_team1_btn)
         main_layout.addLayout(team1_layout)
 
-        # Zeile für Team 2 Buttons
+        # Team 2 Buttons
         team2_layout = QHBoxLayout()
         team2_layout.addWidget(self.team2_btn)
         team2_layout.addWidget(self.reset_team2_btn)
         main_layout.addLayout(team2_layout)
 
-        # Zeile für Ball Buttons
+        # Ball Buttons
         ball_layout = QHBoxLayout()
         ball_layout.addWidget(self.ball_btn)
         ball_layout.addWidget(self.reset_ball_btn)
         main_layout.addLayout(ball_layout)
 
-        # Zeile für Corners Buttons
+        # Corners Buttons
         corners_layout = QHBoxLayout()
         corners_layout.addWidget(self.corners_btn)
         corners_layout.addWidget(self.reset_corners_btn)
         main_layout.addLayout(corners_layout)
 
-        # Füge die restlichen Buttons hinzu
-        #main_layout.addWidget(self.done_btn)
         main_layout.addWidget(self.save_btn)
         
         self.setLayout(main_layout)
 
         self.load_existing_colors()
+
+        self.update_display()
 
     def get_pixmap(self, img):
         rgb_image = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
@@ -156,44 +128,11 @@ class ColorPicker(QWidget):
         return QPixmap.fromImage(QImage(rgb_image.data, w, h, bytes_per_line, QImage.Format_RGB888))
     
     def on_mask_checkbox_changed(self, state):
-        """Wird aufgerufen, wenn der Zustand der Checkbox geändert wird."""
-        # Setze den Sichtbarkeits-Status basierend darauf, ob die Box angehakt ist
-        # state ist ein Integer: 0=Unchecked, 2=Checked
+        """Called when the state of the checkbox changes."""
         self.mask_visible = bool(state)
         print(f"Checkbox state: {state}, mask_visible: {self.mask_visible}")
         
-        # Aktualisiere die Anzeige
         self.update_display()
-
-    # def start_selection(self, event):
-    #     self.selecting = True
-    #     self.start_point = event.position().toPoint()
-    #     self.selection_rect = QRect()
-
-    # def update_selection(self, event):
-    #     if self.selecting:
-    #         self.selection_rect = QRect(self.start_point, event.position().toPoint()).normalized()
-    #         self.update()
-
-    # def finish_selection(self, event):
-    #     self.selecting = False
-    #     #self.label.setPixmap(self.get_pixmap(self.display_image))
-    #     if self.selection_rect.width() < 5 or self.selection_rect.height() < 5:
-    #         print("Selection too small.")
-    #         return
-    #     self.process_roi()
-
-    # def paintEvent(self, event):
-    #     super().paintEvent(event)
-    #     if self.selecting and not self.selection_rect.isNull():
-    #         # Creates a copy of the pixmap for drawing
-    #         pixmap = self.label.pixmap().copy()
-    #         painter = QPainter(pixmap)
-    #         pen = QPen(QColor(0, 255, 0), 2, Qt.PenStyle.DashLine)
-    #         painter.setPen(pen)
-    #         painter.drawRect(self.selection_rect)
-    #         painter.end()  
-    #         self.label.setPixmap(pixmap)
 
     def start_selection(self, event):
         self.selecting = True
@@ -215,7 +154,6 @@ class ColorPicker(QWidget):
 
     def finish_selection(self, event):
         self.selecting = False
-        #self.label.setPixmap(self.get_pixmap(self.display_image))
         
         click_threshold = 1
         if self.selection_rect.width() < click_threshold and self.selection_rect.height() < click_threshold:
@@ -226,106 +164,41 @@ class ColorPicker(QWidget):
 
     def paintEvent(self, event):
         super().paintEvent(event)
-
-    # def toggle_mask_view(self):
-    #     """Schaltet die Sichtbarkeit der Masken-Vorschau um."""
-    #     self.mask_visible = not self.mask_visible
-        
-    #     # Aktualisiere den Button-Text, um den aktuellen Zustand anzuzeigen
-    #     if self.mask_visible:
-    #         self.toggle_mask_btn.setText("Show Mask (on)")
-    #     else:
-    #         self.toggle_mask_btn.setText("Show Mask (off)")
-        
-    #     # Aktualisiere die Anzeige, um die Änderung sofort sichtbar zu machen
-    #     self.update_display()
-
-    # def create_combined_mask(self):
-    #     """Erstellt eine kombinierte Maske aus allen kalibrierten HSV-Bereichen."""
-    #     hsv_image = cv2.cvtColor(self.original_image, cv2.COLOR_BGR2HSV)
-    #     combined_mask = np.zeros(hsv_image.shape[:2], dtype=np.uint8)
-
-    #     # Sammle alle definierten HSV-Bereiche
-    #     all_ranges = self.hsv_ranges_team1 + self.hsv_ranges_team2 + self.hsv_ranges_ball + self.hsv_ranges_corners
-        
-    #     if not all_ranges:
-    #         return None # Gibt nichts zurück, wenn keine Bereiche definiert sind
-
-    #     for min_hsv, max_hsv in all_ranges:
-    #         lower_bound = np.array(min_hsv)
-    #         upper_bound = np.array(max_hsv)
-            
-    #         # Erstelle eine Maske für den aktuellen Bereich und füge sie zur Gesamtmaske hinzu
-    #         partial_mask = cv2.inRange(hsv_image, lower_bound, upper_bound)
-    #         combined_mask = cv2.bitwise_or(combined_mask, partial_mask)
-            
-    #     return combined_mask
     
     def get_representative_color(self, picked_colors_hsv):
-        """Berechnet die Median-Farbe aus einer Liste von HSV-Farben."""
+        """Calculates the median color from a list of HSV colors."""
         if not picked_colors_hsv:
-            return None # Gibt nichts zurück, wenn keine Farben ausgewählt wurden
-        # Median ist robuster gegen Ausreißer als der Durchschnitt
+            return None 
         median_hsv = np.median(np.array(picked_colors_hsv), axis=0)
         return median_hsv.astype(int)
 
     def get_complementary_bgr(self, hsv_color):
-        """Berechnet die Komplementärfarbe und gibt sie als BGR-Wert für OpenCV zurück."""
+        """Calculates the complementary color and returns it as a BGR value for OpenCV."""
         if hsv_color is None:
-            # Fallback-Farbe (helles Grau), falls keine repräsentative Farbe gefunden wurde
             return [192, 192, 192] 
 
         h, s, v = hsv_color
         
-        # Komplementär-Hue ist um 180 Grad verschoben (90 in OpenCV's 0-179 Skala)
         complementary_h = (h + 90) % 180
         
-        # Sorge dafür, dass die Komplementärfarbe immer gut sichtbar ist
         complementary_v = 255
         complementary_s = 255
 
-        # Konvertiere die finale HSV-Farbe nach BGR für die Anzeige
         complementary_hsv_np = np.uint8([[[complementary_h, complementary_s, complementary_v]]])
         complementary_bgr = cv2.cvtColor(complementary_hsv_np, cv2.COLOR_HSV2BGR)[0][0]
         
         return complementary_bgr.tolist()
 
-    # def update_display(self):
-    #     """Aktualisiert das angezeigte Bild, zeigt bei Bedarf die Maske an."""
-    #     if self.mask_visible:
-    #         print("Mask is visible-------------------------------------")
-    #         # Erstelle die Maske nur, wenn sie auch angezeigt werden soll
-    #         mask = self.create_combined_mask()
-            
-    #         if mask is not None:
-    #             # Skaliere die Maske auf die Anzeigegröße
-    #             mask_resized = cv2.resize(mask, (self.display_image.shape[1], self.display_image.shape[0]))
-                
-    #             # Erstelle ein farbiges Overlay (z.B. grün) für die Maske
-    #             overlay = np.zeros_like(self.display_image)
-    #             overlay[mask_resized > 0] = [255, 0, 255] # Grün für die erkannten Bereiche
-
-    #             # Mische das Originalbild mit dem Overlay für einen transparenten Effekt
-    #             final_image = cv2.addWeighted(self.display_image, 1.0, overlay, 0.5, 0)
-    #             self.label.setPixmap(self.get_pixmap(final_image))
-    #             return
-
-    #     # Wenn die Maske nicht sichtbar ist oder keine Bereiche definiert sind, zeige das Originalbild
-    #     self.label.setPixmap(self.get_pixmap(self.display_image))
-
     def update_display(self):
-        """Aktualisiert die Anzeige. Jede Kategorie wird in ihrer Komplementärfarbe angezeigt."""
+        """Refreshes the display. Each category is displayed in its complementary color."""
         if not self.mask_visible:
             self.label.setPixmap(self.get_pixmap(self.display_image))
             return
 
         hsv_image = cv2.cvtColor(self.original_image, cv2.COLOR_BGR2HSV)
         
-        # Erstelle ein leeres, schwarzes Overlay, auf dem wir alle farbigen Masken sammeln
         final_overlay = np.zeros_like(self.original_image)
 
-        # Definiere alle Kategorien, um sie in einer Schleife zu verarbeiten
-        # Wir binden die HSV-Ranges und die dazugehörigen gepickten Farben zusammen
         categories = [
             (self.hsv_ranges_team1, self.picked_colors_team1),
             (self.hsv_ranges_team2, self.picked_colors_team2),
@@ -335,15 +208,13 @@ class ColorPicker(QWidget):
 
         for hsv_ranges, picked_colors in categories:
             if not hsv_ranges:
-                continue # Überspringe Kategorien ohne gültige Ranges
+                continue 
 
-            # 1. Finde die repräsentative Farbe der Kategorie aus den *gepickten* Farben
             rep_color_hsv = self.get_representative_color(picked_colors)
             
-            # 2. Berechne die Komplementärfarbe in BGR
             comp_color_bgr = self.get_complementary_bgr(rep_color_hsv)
 
-            # 3. Erstelle eine Maske nur für diese Kategorie aus ihren *HSV-Ranges*
+            # Mask
             category_mask = np.zeros(hsv_image.shape[:2], dtype=np.uint8)
             for min_hsv, max_hsv in hsv_ranges:
                 lower_bound = np.array(min_hsv)
@@ -351,15 +222,14 @@ class ColorPicker(QWidget):
                 partial_mask = cv2.inRange(hsv_image, lower_bound, upper_bound)
                 category_mask = cv2.bitwise_or(category_mask, partial_mask)
             
-            # 4. Färbe das Overlay mit der Komplementärfarbe an den Stellen der Maske
+            # Complementary color
             final_overlay[category_mask > 0] = comp_color_bgr
 
-        # 5. Skaliere das finale Overlay und mische es mit dem Anzeigebild
+        # Skale
         overlay_resized = cv2.resize(final_overlay, (self.display_image.shape[1], self.display_image.shape[0]))
-        # Erstelle das finale Bild als Kopie des Anzeigebildes
+
         final_image = self.display_image.copy()
         
-        # Ersetze die Pixel in der Maske mit den Komplementärfarben
         mask_pixels = np.any(overlay_resized > 0, axis=2)
         final_image[mask_pixels] = overlay_resized[mask_pixels]
         
@@ -423,19 +293,6 @@ class ColorPicker(QWidget):
 
         dominant_color = np.average(dominant_colors, axis=0, weights=weights).astype(int)
 
-        # if self.current_calibration == 1:
-        #     self.picked_colors_team1.append(dominant_color.tolist())
-        #     print(f"Team 1 color picked: {tuple(dominant_color)}")
-        # elif self.current_calibration == 2:
-        #     self.picked_colors_team2.append(dominant_color.tolist())
-        #     print(f"Team 2 color picked: {tuple(dominant_color)}")
-        # elif self.current_calibration == 3:
-        #     self.picked_colors_ball.append(dominant_color.tolist())
-        #     print(f"Ball color picked: {tuple(dominant_color)}")
-        # elif self.current_calibration == 4:
-        #     self.picked_colors_corners.append(dominant_color.tolist())
-        #     print(f"Corners color picked: {tuple(dominant_color)}")
-
         self.add_color(dominant_color.tolist())
 
     def process_single_pixel(self, point):
@@ -456,7 +313,6 @@ class ColorPicker(QWidget):
 
     def add_color(self, hsv_color_list):
         """Adds a picked color to the correct list and the undo stack."""
-        # Debug: Check the format and content
         print(f"Adding color: {hsv_color_list}, type: {type(hsv_color_list)}, len: {len(hsv_color_list) if hasattr(hsv_color_list, '__len__') else 'N/A'}")
         
         # Ensure it's a proper 3-element list
@@ -470,19 +326,15 @@ class ColorPicker(QWidget):
         if self.current_calibration == 1:
             self.picked_colors_team1.append(hsv_color_list)
             print(f"Team 1 color picked: {tuple(hsv_color_list)}")
-            # self.undo_stack.append(self.picked_colors_team1) # Optional: Falls du die Undo-Funktion nutzt
         elif self.current_calibration == 2:
             self.picked_colors_team2.append(hsv_color_list)
             print(f"Team 2 color picked: {tuple(hsv_color_list)}")
-            # self.undo_stack.append(self.picked_colors_team2)
         elif self.current_calibration == 3:
             self.picked_colors_ball.append(hsv_color_list)
             print(f"Ball color picked: {tuple(hsv_color_list)}")
-            # self.undo_stack.append(self.picked_colors_ball)
         elif self.current_calibration == 4:
             self.picked_colors_corners.append(hsv_color_list)
             print(f"Corners color picked: {tuple(hsv_color_list)}")
-            # self.undo_stack.append(self.picked_colors_corners)
 
         if self.current_calibration == 1:
             self.hsv_ranges_team1 = self.compute_hsv_range_for_team(self.picked_colors_team1)
@@ -493,33 +345,31 @@ class ColorPicker(QWidget):
         elif self.current_calibration == 4:
             self.hsv_ranges_corners = self.compute_hsv_range_for_team(self.picked_colors_corners)
 
-        #self.compute_hsv_ranges()
         self.update_display()
 
     def reset_team1(self):
-        """Setzt alle ausgewählten Farben und Bereiche für Team 1 zurück."""
+        """Resets all selected colors and areas for Team 1."""
         self.picked_colors_team1.clear()
         self.hsv_ranges_team1.clear()
         print("Team 1 colors have been reset.")
-        # Aktualisiere die Anzeige, um die gelöschte Maske zu zeigen
         self.update_display()
 
     def reset_team2(self):
-        """Setzt alle ausgewählten Farben und Bereiche für Team 2 zurück."""
+        """Resets all selected colors and areas for Team 2."""
         self.picked_colors_team2.clear()
         self.hsv_ranges_team2.clear()
         print("Team 2 colors have been reset.")
         self.update_display()
 
     def reset_ball(self):
-        """Setzt alle ausgewählten Farben und Bereiche für den Ball zurück."""
+        """Resets all selected colors and areas for the ball."""
         self.picked_colors_ball.clear()
         self.hsv_ranges_ball.clear()
         print("Ball colors have been reset.")
         self.update_display()
 
     def reset_corners(self):
-        """Setzt alle ausgewählten Farben und Bereiche für die Ecken zurück."""
+        """Resets all selected colors and areas for the corners."""
         self.picked_colors_corners.clear()
         self.hsv_ranges_corners.clear()
         print("Corners colors have been reset.")
@@ -545,12 +395,11 @@ class ColorPicker(QWidget):
         if not picked_colors:
             return []
 
-        # Debug: Check the content of picked_colors
         print(f"Computing HSV range for colors: {picked_colors}")
         for i, color in enumerate(picked_colors):
             print(f"  Color {i}: {color}, type: {type(color)}, len: {len(color) if hasattr(color, '__len__') else 'N/A'}")
 
-        # Ensure all colors are proper 3-element lists
+        # Ensures all colors are proper 3-element lists
         cleaned_colors = []
         for color in picked_colors:
             if isinstance(color, (list, tuple)) and len(color) == 3:
@@ -570,7 +419,6 @@ class ColorPicker(QWidget):
             return []
         hues = picked_array[:, 0]
 
-        # Separates Hue into two groups: "small" and "large" (due to cyclic Hue)
         group1 = picked_array[hues < 20]
         group2 = picked_array[hues > 160]
 
@@ -628,7 +476,7 @@ class ColorPicker(QWidget):
             print("Corners HSV area could not be calculated.")
 
     def load_existing_colors(self):
-        """Lädt die existierenden Farb-Ranges aus der colors.json, falls vorhanden."""
+        """Loads the existing color ranges from the colors.json, if available."""
         project_folder = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
         filepath = os.path.join(project_folder, "detection/colors.json")
 
@@ -640,7 +488,7 @@ class ColorPicker(QWidget):
             with open(filepath, "r") as f:
                 config = json.load(f)
 
-            # Lade die Ranges für jede Kategorie, falls sie in der Datei existieren
+            # Loads the ranges for each category if they exist in the file
             if "team1" in config and "ranges" in config["team1"]:
                 self.hsv_ranges_team1 = [
                     (np.array(r["lower"]), np.array(r["upper"])) for r in config["team1"]["ranges"]
@@ -668,38 +516,10 @@ class ColorPicker(QWidget):
         except Exception as e:
             print(f"Error loading colors.json: {e}. Starting fresh.")
 
-    # def save_json(self):
-    #     config = {}
-    #     if self.hsv_ranges_team1:
-    #         config["team1"] = {
-    #             "ranges": [{"lower": r[0].tolist(), "upper": r[1].tolist()} for r in self.hsv_ranges_team1]
-    #         }
-    #     if self.hsv_ranges_team2:
-    #         config["team2"] = {
-    #             "ranges": [{"lower": r[0].tolist(), "upper": r[1].tolist()} for r in self.hsv_ranges_team2]
-    #         }
-    #     if self.hsv_ranges_ball:
-    #         config["ball"] = {
-    #             "ranges": [{"lower": r[0].tolist(), "upper": r[1].tolist()} for r in self.hsv_ranges_ball]
-    #         }
-    #     if self.hsv_ranges_corners:
-    #         config["corners"] = {
-    #             "ranges": [{"lower": r[0].tolist(), "upper": r[1].tolist()} for r in self.hsv_ranges_corners]
-    #         }
-
-    #     project_folder = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-    #     filepath = os.path.join(project_folder, "detection/colors.json")
-    #     with open(filepath, "w") as f:
-    #         json.dump(config, f, indent=2)
-    #     print(f"Saved as {filepath}")
-
     def save_json(self):
-        """Speichert den aktuellen Zustand aller HSV-Ranges in die JSON-Datei."""
+        """Saves the current state of all HSV ranges to the JSON file."""
         config = {}
 
-        # Nimm einfach die aktuellen Werte aus den hsv_ranges-Listen.
-        # Diese enthalten entweder die alten, geladenen Werte oder die
-        # neuen, durch die Kalibrierung aktualisierten Werte.
         if self.hsv_ranges_team1:
             config["team1"] = {"ranges": [{"lower": r[0].tolist(), "upper": r[1].tolist()} for r in self.hsv_ranges_team1]}
         
