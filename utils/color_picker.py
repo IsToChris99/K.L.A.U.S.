@@ -240,49 +240,125 @@ class ColorPicker(QWidget):
     #     # Aktualisiere die Anzeige, um die Änderung sofort sichtbar zu machen
     #     self.update_display()
 
-    def create_combined_mask(self):
-        """Erstellt eine kombinierte Maske aus allen kalibrierten HSV-Bereichen."""
-        hsv_image = cv2.cvtColor(self.original_image, cv2.COLOR_BGR2HSV)
-        combined_mask = np.zeros(hsv_image.shape[:2], dtype=np.uint8)
+    # def create_combined_mask(self):
+    #     """Erstellt eine kombinierte Maske aus allen kalibrierten HSV-Bereichen."""
+    #     hsv_image = cv2.cvtColor(self.original_image, cv2.COLOR_BGR2HSV)
+    #     combined_mask = np.zeros(hsv_image.shape[:2], dtype=np.uint8)
 
-        # Sammle alle definierten HSV-Bereiche
-        all_ranges = self.hsv_ranges_team1 + self.hsv_ranges_team2 + self.hsv_ranges_ball + self.hsv_ranges_corners
+    #     # Sammle alle definierten HSV-Bereiche
+    #     all_ranges = self.hsv_ranges_team1 + self.hsv_ranges_team2 + self.hsv_ranges_ball + self.hsv_ranges_corners
         
-        if not all_ranges:
-            return None # Gibt nichts zurück, wenn keine Bereiche definiert sind
+    #     if not all_ranges:
+    #         return None # Gibt nichts zurück, wenn keine Bereiche definiert sind
 
-        for min_hsv, max_hsv in all_ranges:
-            lower_bound = np.array(min_hsv)
-            upper_bound = np.array(max_hsv)
+    #     for min_hsv, max_hsv in all_ranges:
+    #         lower_bound = np.array(min_hsv)
+    #         upper_bound = np.array(max_hsv)
             
-            # Erstelle eine Maske für den aktuellen Bereich und füge sie zur Gesamtmaske hinzu
-            partial_mask = cv2.inRange(hsv_image, lower_bound, upper_bound)
-            combined_mask = cv2.bitwise_or(combined_mask, partial_mask)
+    #         # Erstelle eine Maske für den aktuellen Bereich und füge sie zur Gesamtmaske hinzu
+    #         partial_mask = cv2.inRange(hsv_image, lower_bound, upper_bound)
+    #         combined_mask = cv2.bitwise_or(combined_mask, partial_mask)
             
-        return combined_mask
+    #     return combined_mask
+    
+    def get_representative_color(self, picked_colors_hsv):
+        """Berechnet die Median-Farbe aus einer Liste von HSV-Farben."""
+        if not picked_colors_hsv:
+            return None # Gibt nichts zurück, wenn keine Farben ausgewählt wurden
+        # Median ist robuster gegen Ausreißer als der Durchschnitt
+        median_hsv = np.median(np.array(picked_colors_hsv), axis=0)
+        return median_hsv.astype(int)
+
+    def get_complementary_bgr(self, hsv_color):
+        """Berechnet die Komplementärfarbe und gibt sie als BGR-Wert für OpenCV zurück."""
+        if hsv_color is None:
+            # Fallback-Farbe (helles Grau), falls keine repräsentative Farbe gefunden wurde
+            return [192, 192, 192] 
+
+        h, s, v = hsv_color
+        
+        # Komplementär-Hue ist um 180 Grad verschoben (90 in OpenCV's 0-179 Skala)
+        complementary_h = (h + 90) % 180
+        
+        # Sorge dafür, dass die Komplementärfarbe immer gut sichtbar ist
+        complementary_v = 255 if v < 128 else v # Wenn Original dunkel, mache Komplementär hell
+        complementary_s = 255 if s < 128 else s # Wenn Original entsättigt, mache Komplementär satt
+
+        # Konvertiere die finale HSV-Farbe nach BGR für die Anzeige
+        complementary_hsv_np = np.uint8([[[complementary_h, complementary_s, complementary_v]]])
+        complementary_bgr = cv2.cvtColor(complementary_hsv_np, cv2.COLOR_HSV2BGR)[0][0]
+        
+        return complementary_bgr.tolist()
+
+    # def update_display(self):
+    #     """Aktualisiert das angezeigte Bild, zeigt bei Bedarf die Maske an."""
+    #     if self.mask_visible:
+    #         print("Mask is visible-------------------------------------")
+    #         # Erstelle die Maske nur, wenn sie auch angezeigt werden soll
+    #         mask = self.create_combined_mask()
+            
+    #         if mask is not None:
+    #             # Skaliere die Maske auf die Anzeigegröße
+    #             mask_resized = cv2.resize(mask, (self.display_image.shape[1], self.display_image.shape[0]))
+                
+    #             # Erstelle ein farbiges Overlay (z.B. grün) für die Maske
+    #             overlay = np.zeros_like(self.display_image)
+    #             overlay[mask_resized > 0] = [255, 0, 255] # Grün für die erkannten Bereiche
+
+    #             # Mische das Originalbild mit dem Overlay für einen transparenten Effekt
+    #             final_image = cv2.addWeighted(self.display_image, 1.0, overlay, 0.5, 0)
+    #             self.label.setPixmap(self.get_pixmap(final_image))
+    #             return
+
+    #     # Wenn die Maske nicht sichtbar ist oder keine Bereiche definiert sind, zeige das Originalbild
+    #     self.label.setPixmap(self.get_pixmap(self.display_image))
 
     def update_display(self):
-        """Aktualisiert das angezeigte Bild, zeigt bei Bedarf die Maske an."""
-        if self.mask_visible:
-            print("Mask is visible-------------------------------------")
-            # Erstelle die Maske nur, wenn sie auch angezeigt werden soll
-            mask = self.create_combined_mask()
+        """Aktualisiert die Anzeige. Jede Kategorie wird in ihrer Komplementärfarbe angezeigt."""
+        if not self.mask_visible:
+            self.label.setPixmap(self.get_pixmap(self.display_image))
+            return
+
+        hsv_image = cv2.cvtColor(self.original_image, cv2.COLOR_BGR2HSV)
+        
+        # Erstelle ein leeres, schwarzes Overlay, auf dem wir alle farbigen Masken sammeln
+        final_overlay = np.zeros_like(self.original_image)
+
+        # Definiere alle Kategorien, um sie in einer Schleife zu verarbeiten
+        # Wir binden die HSV-Ranges und die dazugehörigen gepickten Farben zusammen
+        categories = [
+            (self.hsv_ranges_team1, self.picked_colors_team1),
+            (self.hsv_ranges_team2, self.picked_colors_team2),
+            (self.hsv_ranges_ball, self.picked_colors_ball),
+            (self.hsv_ranges_corners, self.picked_colors_corners)
+        ]
+
+        for hsv_ranges, picked_colors in categories:
+            if not hsv_ranges:
+                continue # Überspringe Kategorien ohne gültige Ranges
+
+            # 1. Finde die repräsentative Farbe der Kategorie aus den *gepickten* Farben
+            rep_color_hsv = self.get_representative_color(picked_colors)
             
-            if mask is not None:
-                # Skaliere die Maske auf die Anzeigegröße
-                mask_resized = cv2.resize(mask, (self.display_image.shape[1], self.display_image.shape[0]))
-                
-                # Erstelle ein farbiges Overlay (z.B. grün) für die Maske
-                overlay = np.zeros_like(self.display_image)
-                overlay[mask_resized > 0] = [255, 0, 255] # Grün für die erkannten Bereiche
+            # 2. Berechne die Komplementärfarbe in BGR
+            comp_color_bgr = self.get_complementary_bgr(rep_color_hsv)
 
-                # Mische das Originalbild mit dem Overlay für einen transparenten Effekt
-                final_image = cv2.addWeighted(self.display_image, 1.0, overlay, 0.5, 0)
-                self.label.setPixmap(self.get_pixmap(final_image))
-                return
+            # 3. Erstelle eine Maske nur für diese Kategorie aus ihren *HSV-Ranges*
+            category_mask = np.zeros(hsv_image.shape[:2], dtype=np.uint8)
+            for min_hsv, max_hsv in hsv_ranges:
+                lower_bound = np.array(min_hsv)
+                upper_bound = np.array(max_hsv)
+                partial_mask = cv2.inRange(hsv_image, lower_bound, upper_bound)
+                category_mask = cv2.bitwise_or(category_mask, partial_mask)
+            
+            # 4. Färbe das Overlay mit der Komplementärfarbe an den Stellen der Maske
+            final_overlay[category_mask > 0] = comp_color_bgr
 
-        # Wenn die Maske nicht sichtbar ist oder keine Bereiche definiert sind, zeige das Originalbild
-        self.label.setPixmap(self.get_pixmap(self.display_image))
+        # 5. Skaliere das finale Overlay und mische es mit dem Anzeigebild
+        overlay_resized = cv2.resize(final_overlay, (self.display_image.shape[1], self.display_image.shape[0]))
+        final_image = cv2.addWeighted(self.display_image, 1.0, overlay_resized, 0.6, 0)
+        
+        self.label.setPixmap(self.get_pixmap(final_image))
 
     def process_roi(self):
         x = int(self.selection_rect.x() / self.scale_factor)
