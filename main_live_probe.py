@@ -158,6 +158,10 @@ class CombinedTracker:
                 # If no velocity from detection, get it from Kalman tracker
                 if self.ball_tracker.kalman_tracker.initialized:
                     ball_velocity = self.ball_tracker.kalman_tracker.get_velocity()
+
+                # Check if goal was scored before updating speed
+                previous_score = self.goal_scorer.get_score()['total_goals']
+
                 self.goal_scorer.update_ball_tracking(
                     ball_position,
                     goals,
@@ -165,6 +169,15 @@ class CombinedTracker:
                     self.ball_tracker.missing_counter,
                     ball_velocity
                 )
+
+                # Check if score changed (goal was scored)
+                if self.goal_scorer.score != previous_score:
+                    max_speed = self.ball_speed_calculator.get_max_recent_speed()
+                    max_speed_kmh = self.ball_speed_calculator.get_max_recent_speed_kmh()
+                    print(f"GOAL! Maximum speed in last sequence: {max_speed:.2f} m/s ({max_speed_kmh:.2f} km/h)")
+                    
+                    # Optionally clear the buffer after a goal
+                    self.ball_speed_calculator.clear_speed_buffer()
 
                 self.ball_speed = self.ball_speed_calculator.update(ball_position, current_timestamp_ns, self.px_to_cm_ratio)
 
@@ -194,7 +207,8 @@ class CombinedTracker:
                         'detection': detection_result,
                         'smoothed_pts': list(self.ball_tracker.smoothed_pts),
                         'missing_counter': self.ball_tracker.missing_counter,
-                        'ball_speed': self.ball_speed
+                        'ball_speed': self.ball_speed,
+                        'max_recent_speed': self.ball_speed_calculator.get_max_recent_speed()
                     }
                     
             
