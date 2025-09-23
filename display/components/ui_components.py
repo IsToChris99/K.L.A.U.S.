@@ -75,12 +75,36 @@ class ScoreSection:
         self.parent_window.team1_plus_btn = QPushButton("+")
         self.parent_window.team1_minus_btn = QPushButton("-")
         
-        team_button_style = """
+        team1_button_style = """
             QPushButton {
                 font-size: 14px;
                 font-weight: bold;
-                color: black;
-                background-color: #f5f5f5;
+                color: white;
+                background-color: #f54f4f;
+                padding: 3px 10px;
+                border: 1px solid #4CAF50;
+                border-radius: 4px;
+                min-width: 25px;
+                max-width: 25px;
+                min-height: 20px;
+                max-height: 20px;
+            }
+            QPushButton:hover {
+                background-color: #b7c2b7;
+                border: 1px solid #45a049;
+            }
+            QPushButton:pressed {
+                background-color: #868f86;
+                border: 1px solid #3d8b40;
+            }
+        """
+
+        team2_button_style = """
+            QPushButton {
+                font-size: 14px;
+                font-weight: bold;
+                color: white;
+                background-color: #4f4f8f;
                 padding: 3px 10px;
                 border: 1px solid #4CAF50;
                 border-radius: 4px;
@@ -99,8 +123,8 @@ class ScoreSection:
             }
         """
         
-        self.parent_window.team1_plus_btn.setStyleSheet(team_button_style)
-        self.parent_window.team1_minus_btn.setStyleSheet(team_button_style)
+        self.parent_window.team1_plus_btn.setStyleSheet(team1_button_style)
+        self.parent_window.team1_minus_btn.setStyleSheet(team1_button_style)
         
         team1_layout.addWidget(self.parent_window.team1_plus_btn)
         team1_layout.addWidget(self.parent_window.team1_minus_btn)
@@ -128,8 +152,8 @@ class ScoreSection:
         self.parent_window.team2_plus_btn = QPushButton("+")
         self.parent_window.team2_minus_btn = QPushButton("-")
         
-        self.parent_window.team2_plus_btn.setStyleSheet(team_button_style)
-        self.parent_window.team2_minus_btn.setStyleSheet(team_button_style)
+        self.parent_window.team2_plus_btn.setStyleSheet(team2_button_style)
+        self.parent_window.team2_minus_btn.setStyleSheet(team2_button_style)
         
         team2_layout.addWidget(self.parent_window.team2_plus_btn)
         team2_layout.addWidget(self.parent_window.team2_minus_btn)
