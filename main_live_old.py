@@ -345,7 +345,8 @@ class CombinedTracker:
                 color = config.COLOR_BALL_LOW_CONFIDENCE   # Orange
 
             cv2.circle(frame, center_int, 3, color, -1)
-            cv2.circle(frame, center_int, int(radius), color, 2)
+            transformed_radius = int(radius * np.linalg.norm(self.M_persp[0:2, 0:2])) # Approximate scaling
+            cv2.circle(frame, center_int, transformed_radius, color, 2)
 
             cv2.putText(frame, f"R: {radius:.1f}", (center_int[0] + 15, center_int[1] - 15),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
