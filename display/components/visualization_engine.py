@@ -154,10 +154,10 @@ class VisualizationEngine:
         if frame is None or M_persp is None:
             return None
         
-        display_frame = frame.copy()
+        #display_frame = frame.copy()
         self.M_persp = M_persp
 
-        display_frame = cv2.warpPerspective(display_frame, M_persp, (display_frame.shape[1], display_frame.shape[0]))
+        display_frame = cv2.warpPerspective(frame, M_persp, (frame.shape[1], frame.shape[0]))
 
         # Only draw visualizations if enabled
         if self.show_detections:

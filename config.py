@@ -91,6 +91,9 @@ GOAL_DIRECTION_THRESHOLD_DISTANCE = 200  # Distance threshold to goal for direct
 DISPLAY_FPS = 30
 DISPLAY_INTERVAL = 1.0 / DISPLAY_FPS
 
+# Frame filtering - only send frames to GUI when detections are complete
+GUI_SHOW_ONLY_COMPLETE_DETECTIONS = True  # True: Nur Frames mit Field und Player anzeigen, False: Alle Frames anzeigen
+
 # Morphological operations - kernel sizes
 FIELD_CLOSE_KERNEL_SIZE = (20, 20)
 FIELD_OPEN_KERNEL_SIZE = (10, 10)
@@ -118,6 +121,7 @@ BALL_TRAIL_THICKNESS_FACTOR = 2.5
 # ================== DEBUG SETTINGS ==================
 DEBUG_SHOW_MASKS = False
 DEBUG_VERBOSE_OUTPUT = True
+DEBUG_SHOW_FRAME_FILTERING = False  # True: Zeigt Debug-Nachrichten für gefilterte Frames
 
 # ================== SCREENSHOT & RECORDING ==================
 SCREENSHOT_PATH = "screenshots/"

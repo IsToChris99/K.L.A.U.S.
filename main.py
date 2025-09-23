@@ -9,6 +9,7 @@ from PySide6.QtWidgets import QApplication
 # import qdarkstyle
 
 # Lokale Imports
+import config
 from detection.ball_detector import BallDetector
 from detection.field_detector_markers import FieldDetector  # Verwende markers Version
 from detection.player_detector import PlayerDetector
@@ -418,30 +419,51 @@ class ProcessingProcess(mp.Process):
                     except Exception:
                         current_score = None
 
-                # Package for UI
-                final_package = {
-                    'preprocessed_frame': preprocessed_frame,
-                    'ball_data': results.get('ball_data'),
-                    'player_data': results.get('player_data'),
-                    'score': goal_infos if current_score else {'player1': 0, 'player2': 0},
-                    'max_goals': max_goals if current_score else 1,
-                    'M_persp': results.get('M_persp', self.latest_M_persp),
-                    'M_field': results.get('M_field', self.latest_M_field),
-                    'fps_data': self.current_fps.copy(),
-                    'processing_mode': 'GPU' if self.use_gpu_processing else 'CPU',
-                    'field_data': {
-                        'calibrated': results.get('field_calibrated', False),
-                        'field_contour': results.get('field_contour'),
-                        'field_corners': results.get('field_corners'),
-                        'field_bounds': results.get('field_corners'),
-                        'field_rect_points': results.get('field_rect_points'),
-                        'goals': results.get('goals', []),
-                        'calibration_mode': self.calibration_mode,
-                    },
-                }
+                # Check if we should filter frames based on detection completeness
+                should_send_frame = True
+                
+                if config.GUI_SHOW_ONLY_COMPLETE_DETECTIONS:
+                    # Check if both field and player detection have valid data
+                    field_data_valid = (results.get('field_corners') is not None and 
+                                      results.get('field_calibrated', False))
+                    player_data_valid = (results.get('player_data') is not None and 
+                                        results.get('player_data', {}).get('total_players', 0) > 0)
+                    
+                    # Only send to GUI if both field and players are detected
+                    should_send_frame = field_data_valid and player_data_valid
+                    
+                    # Optional debug output
+                    if not should_send_frame and config.DEBUG_SHOW_FRAME_FILTERING:
+                        field_status = "✓" if field_data_valid else "✗"
+                        player_status = "✓" if player_data_valid else "✗"
+                        print(f"Frame filtered: Field {field_status}, Player {player_status}")
+                
+                if should_send_frame:
+                    # Package for UI
+                    final_package = {
+                        'preprocessed_frame': preprocessed_frame,
+                        'ball_data': results.get('ball_data'),
+                        'player_data': results.get('player_data'),
+                        'score': goal_infos if current_score else {'player1': 0, 'player2': 0},
+                        'max_goals': max_goals if current_score else 1,
+                        'M_persp': results.get('M_persp', self.latest_M_persp),
+                        'M_field': results.get('M_field', self.latest_M_field),
+                        'fps_data': self.current_fps.copy(),
+                        'processing_mode': 'GPU' if self.use_gpu_processing else 'CPU',
+                        'field_data': {
+                            'calibrated': results.get('field_calibrated', False),
+                            'field_contour': results.get('field_contour'),
+                            'field_corners': results.get('field_corners'),
+                            'field_bounds': results.get('field_corners'),
+                            'field_rect_points': results.get('field_rect_points'),
+                            'goals': results.get('goals', []),
+                            'calibration_mode': self.calibration_mode,
+                        },
+                    }
 
-                if not self.results_queue.full():
-                    self.results_queue.put(final_package)
+                    if not self.results_queue.full():
+                        self.results_queue.put(final_package)
+                # Else: Frame wird nicht an GUI gesendet, da Erkennungen nicht vollständig sind (falls GUI_SHOW_ONLY_COMPLETE_DETECTIONS=True)
 
         finally:
             # Cleanup workers and shared memory
@@ -696,6 +718,12 @@ def main_gui():
     window.add_log_message("Kamera-Thread läuft...")
     window.add_log_message("Processing-Prozess läuft...")
     window.add_log_message("Warten auf Video-Stream...")
+    
+    # Log frame filtering status
+    if config.GUI_SHOW_ONLY_COMPLETE_DETECTIONS:
+        window.add_log_message("Frame-Filterung aktiv: Nur vollständige Erkennungen werden angezeigt")
+    else:
+        window.add_log_message("Frame-Filterung deaktiviert: Alle Frames werden angezeigt")
 
     # 5. Starte die Anwendung und warte auf das saubere Herunterfahren
     try:
