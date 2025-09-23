@@ -17,6 +17,7 @@ from .components.event_handlers import EventHandlers
 from processing.cpu_preprocessor import CPUPreprocessor
 from processing.gpu_preprocessor import GPUPreprocessor
 from utils.color_picker import ColorPicker
+import config
 
 class KickerMainWindow(QMainWindow):
     """Hauptfenster der Kicker Klaus Anwendung für Multiprocessing-Architektur"""
@@ -74,10 +75,10 @@ class KickerMainWindow(QMainWindow):
         self.setup_ui()
         self.connect_signals()
         
-        # Timer to poll the results queue with optimized rate
+        # Timer to poll the results queue with configurable update rate
         self.update_timer = QTimer()
         self.update_timer.timeout.connect(self.poll_results_queue)
-        self.update_timer.start(1)  # ~60 FPS update rate for UI
+        self.update_timer.start(config.GUI_UPDATE_INTERVAL_MS)  # Configurable GUI update rate
 
         self.add_log_message("GUI initialized with multi-processing architecture")
         
@@ -165,8 +166,8 @@ class KickerMainWindow(QMainWindow):
     def poll_results_queue(self):
         """Pollt die Ergebnis-Queue für neue Daten aus dem Verarbeitungsprozess - optimierte Version"""
         try:
-            # Begrenze die Anzahl der verarbeiteten Queue-Elemente pro Aufruf
-            max_items_per_call = 3
+            # Begrenze die Anzahl der verarbeiteten Queue-Elemente pro Aufruf (konfigurierbar)
+            max_items_per_call = config.GUI_MAX_ITEMS_PER_UPDATE
             items_processed = 0
 
             vorher = time.perf_counter_ns()
@@ -203,14 +204,15 @@ class KickerMainWindow(QMainWindow):
                         if hasattr(self, 'goal_limit_input') and self.goal_limit_input.value() != max_goals_data:
                             self.goal_limit_input.setValue(max_goals_data)
 
-                    # Update FPS data from processing if available (throttled)
+                    # Update FPS data from processing if available (less throttled for smoother updates)
                     fps_data = result_package.get("fps_data")
                     if fps_data:
                         current_time = time.time()
                         if not hasattr(self, '_last_fps_update_time'):
                             self._last_fps_update_time = 0
                         
-                        if current_time - self._last_fps_update_time > 0.5:
+                        # Update FPS display more frequently for smoother GUI
+                        if current_time - self._last_fps_update_time > config.GUI_FPS_UPDATE_INTERVAL:
                             self.camera_fps = fps_data.get('camera', 0.0)
                             self.preprocessing_fps = fps_data.get('preprocessing', 0.0)
                             self.ball_detection_fps = fps_data.get('ball_detection', 0.0)
@@ -225,7 +227,10 @@ class KickerMainWindow(QMainWindow):
                     # Update player data
                     self.current_player_data = result_package.get("player_data")
 
-                    print(f"\rProcessed in {(time.perf_counter_ns() - vorher) / 1000000} ms", end="")
+                    # Optional debug output (only in debug mode to avoid GUI slowdown)
+                    if config.DEBUG_VERBOSE_OUTPUT and items_processed == max_items_per_call:
+                        processing_time = (time.perf_counter_ns() - vorher) / 1000000
+                        print(f"\rGUI processed {items_processed} items in {processing_time:.1f}ms", end="")
 
                 except Exception as e:
                     print(f"Error processing queue item: {e}")

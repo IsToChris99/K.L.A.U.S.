@@ -91,6 +91,34 @@ GOAL_DIRECTION_THRESHOLD_DISTANCE = 200  # Distance threshold to goal for direct
 DISPLAY_FPS = 30
 DISPLAY_INTERVAL = 1.0 / DISPLAY_FPS
 
+# GUI Update Settings
+# GUI Performance Profiles:
+# - "standard": 30 FPS, 3 items/update - gut für normale Hardware  
+# - "smooth": 60 FPS, 5 items/update - empfohlen für flüssige Darstellung
+# - "high_performance": 120 FPS, 8 items/update - für leistungsstarke Hardware
+GUI_PERFORMANCE_PROFILE = "standard"  # "standard", "smooth", "high_performance"
+
+# Automatische Konfiguration basierend auf Profil
+if GUI_PERFORMANCE_PROFILE == "standard":
+    GUI_UPDATE_FPS = 30
+    GUI_MAX_ITEMS_PER_UPDATE = 3
+    GUI_FPS_UPDATE_INTERVAL = 0.5
+elif GUI_PERFORMANCE_PROFILE == "smooth":
+    GUI_UPDATE_FPS = 60
+    GUI_MAX_ITEMS_PER_UPDATE = 5
+    GUI_FPS_UPDATE_INTERVAL = 0.2
+elif GUI_PERFORMANCE_PROFILE == "high_performance":
+    GUI_UPDATE_FPS = 120
+    GUI_MAX_ITEMS_PER_UPDATE = 8
+    GUI_FPS_UPDATE_INTERVAL = 0.1
+else:
+    # Fallback auf smooth
+    GUI_UPDATE_FPS = 60
+    GUI_MAX_ITEMS_PER_UPDATE = 5
+    GUI_FPS_UPDATE_INTERVAL = 0.2
+
+GUI_UPDATE_INTERVAL_MS = int(1000 / GUI_UPDATE_FPS)  # Millisekunden zwischen GUI-Updates
+
 # Frame filtering - only send frames to GUI when detections are complete
 GUI_SHOW_ONLY_COMPLETE_DETECTIONS = True  # True: Nur Frames mit Field und Player anzeigen, False: Alle Frames anzeigen
 

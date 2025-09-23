@@ -75,11 +75,6 @@ class VisualizationEngine:
         for i in range(1, len(transformed_smoothed_pts)):
             thickness = int(np.sqrt(config.BALL_TRAIL_MAX_LENGTH / float(i + 1)) * config.BALL_TRAIL_THICKNESS_FACTOR)
             cv2.line(frame, tuple(transformed_smoothed_pts[i - 1]), tuple(transformed_smoothed_pts[i]), config.COLOR_BALL_TRAIL, thickness)
-
-
-        # Missing Counter
-        cv2.putText(frame, f"Missing: {missing_counter}", (10, 120),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
     
     def draw_field_visualization(self, frame, field_data):
         """Draws field visualization"""
