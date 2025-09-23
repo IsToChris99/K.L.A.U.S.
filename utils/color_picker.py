@@ -78,8 +78,8 @@ class ColorPicker(QWidget):
         self.reset_corners_btn = QPushButton("Reset", self)
         self.reset_corners_btn.clicked.connect(self.reset_corners)      
 
-        self.done_btn = QPushButton("Calculate", self)
-        self.done_btn.clicked.connect(self.compute_hsv_ranges)
+        #self.done_btn = QPushButton("Calculate", self)
+        #self.done_btn.clicked.connect(self.compute_hsv_ranges)
 
         self.save_btn = QPushButton("Save", self)
         self.save_btn.clicked.connect(self.save_json)
@@ -146,6 +146,8 @@ class ColorPicker(QWidget):
         main_layout.addWidget(self.save_btn)
         
         self.setLayout(main_layout)
+
+        self.load_existing_colors()
 
     def get_pixmap(self, img):
         rgb_image = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
@@ -534,24 +536,103 @@ class ColorPicker(QWidget):
         else:
             print("Corners HSV area could not be calculated.")
 
+    def load_existing_colors(self):
+        """Lädt die existierenden Farb-Ranges aus der colors.json, falls vorhanden."""
+        project_folder = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+        filepath = os.path.join(project_folder, "detection/colors.json")
+
+        if not os.path.exists(filepath):
+            print("No existing colors.json found. Starting fresh.")
+            return
+
+        try:
+            with open(filepath, "r") as f:
+                config = json.load(f)
+
+            # Lade die Ranges für jede Kategorie, falls sie in der Datei existieren
+            if "team1" in config and "ranges" in config["team1"]:
+                self.hsv_ranges_team1 = [
+                    (np.array(r["lower"]), np.array(r["upper"])) for r in config["team1"]["ranges"]
+                ]
+                print(f"Loaded {len(self.hsv_ranges_team1)} existing ranges for Team 1.")
+
+            if "team2" in config and "ranges" in config["team2"]:
+                self.hsv_ranges_team2 = [
+                    (np.array(r["lower"]), np.array(r["upper"])) for r in config["team2"]["ranges"]
+                ]
+                print(f"Loaded {len(self.hsv_ranges_team2)} existing ranges for Team 2.")
+
+            if "ball" in config and "ranges" in config["ball"]:
+                self.hsv_ranges_ball = [
+                    (np.array(r["lower"]), np.array(r["upper"])) for r in config["ball"]["ranges"]
+                ]
+                print(f"Loaded {len(self.hsv_ranges_ball)} existing ranges for Ball.")
+
+            if "corners" in config and "ranges" in config["corners"]:
+                self.hsv_ranges_corners = [
+                    (np.array(r["lower"]), np.array(r["upper"])) for r in config["corners"]["ranges"]
+                ]
+                print(f"Loaded {len(self.hsv_ranges_corners)} existing ranges for Corners.")
+
+        except Exception as e:
+            print(f"Error loading colors.json: {e}. Starting fresh.")
+
+    # def save_json(self):
+    #     config = {}
+    #     if self.hsv_ranges_team1:
+    #         config["team1"] = {
+    #             "ranges": [{"lower": r[0].tolist(), "upper": r[1].tolist()} for r in self.hsv_ranges_team1]
+    #         }
+    #     if self.hsv_ranges_team2:
+    #         config["team2"] = {
+    #             "ranges": [{"lower": r[0].tolist(), "upper": r[1].tolist()} for r in self.hsv_ranges_team2]
+    #         }
+    #     if self.hsv_ranges_ball:
+    #         config["ball"] = {
+    #             "ranges": [{"lower": r[0].tolist(), "upper": r[1].tolist()} for r in self.hsv_ranges_ball]
+    #         }
+    #     if self.hsv_ranges_corners:
+    #         config["corners"] = {
+    #             "ranges": [{"lower": r[0].tolist(), "upper": r[1].tolist()} for r in self.hsv_ranges_corners]
+    #         }
+
+    #     project_folder = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    #     filepath = os.path.join(project_folder, "detection/colors.json")
+    #     with open(filepath, "w") as f:
+    #         json.dump(config, f, indent=2)
+    #     print(f"Saved as {filepath}")
+
     def save_json(self):
+        """Speichert die Konfiguration. Behält alte Werte bei, wenn keine neuen ausgewählt wurden."""
         config = {}
-        if self.hsv_ranges_team1:
-            config["team1"] = {
-                "ranges": [{"lower": r[0].tolist(), "upper": r[1].tolist()} for r in self.hsv_ranges_team1]
-            }
-        if self.hsv_ranges_team2:
-            config["team2"] = {
-                "ranges": [{"lower": r[0].tolist(), "upper": r[1].tolist()} for r in self.hsv_ranges_team2]
-            }
-        if self.hsv_ranges_ball:
-            config["ball"] = {
-                "ranges": [{"lower": r[0].tolist(), "upper": r[1].tolist()} for r in self.hsv_ranges_ball]
-            }
-        if self.hsv_ranges_corners:
-            config["corners"] = {
-                "ranges": [{"lower": r[0].tolist(), "upper": r[1].tolist()} for r in self.hsv_ranges_corners]
-            }
+
+        # Team 1: Wenn neue Farben ausgewählt wurden, berechne sie. Ansonsten behalte die alten.
+        if self.picked_colors_team1:
+            ranges = self.compute_hsv_range_for_team(self.picked_colors_team1)
+            config["team1"] = {"ranges": [{"lower": r[0].tolist(), "upper": r[1].tolist()} for r in ranges]}
+        elif self.hsv_ranges_team1:
+            config["team1"] = {"ranges": [{"lower": r[0].tolist(), "upper": r[1].tolist()} for r in self.hsv_ranges_team1]}
+        
+        # Team 2:
+        if self.picked_colors_team2:
+            ranges = self.compute_hsv_range_for_team(self.picked_colors_team2)
+            config["team2"] = {"ranges": [{"lower": r[0].tolist(), "upper": r[1].tolist()} for r in ranges]}
+        elif self.hsv_ranges_team2:
+            config["team2"] = {"ranges": [{"lower": r[0].tolist(), "upper": r[1].tolist()} for r in self.hsv_ranges_team2]}
+
+        # Ball:
+        if self.picked_colors_ball:
+            ranges = self.compute_hsv_range_for_team(self.picked_colors_ball)
+            config["ball"] = {"ranges": [{"lower": r[0].tolist(), "upper": r[1].tolist()} for r in ranges]}
+        elif self.hsv_ranges_ball:
+            config["ball"] = {"ranges": [{"lower": r[0].tolist(), "upper": r[1].tolist()} for r in self.hsv_ranges_ball]}
+
+        # Corners:
+        if self.picked_colors_corners:
+            ranges = self.compute_hsv_range_for_team(self.picked_colors_corners)
+            config["corners"] = {"ranges": [{"lower": r[0].tolist(), "upper": r[1].tolist()} for r in ranges]}
+        elif self.hsv_ranges_corners:
+            config["corners"] = {"ranges": [{"lower": r[0].tolist(), "upper": r[1].tolist()} for r in self.hsv_ranges_corners]}
 
         project_folder = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
         filepath = os.path.join(project_folder, "detection/colors.json")
