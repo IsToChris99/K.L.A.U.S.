@@ -193,7 +193,7 @@ class GoalScorer:
                 scoring_player = "Player 1"
                 goal_counted = True
             else:
-                print(f"Player 1 has already reached maximum goals ({self.max_goals}). Goal not counted.")
+                # print(f"Player 1 has already reached maximum goals ({self.max_goals}). Goal not counted.")
                 return
         elif goal_type in self.player2_goal_types:
             if self.player2_goals < self.max_goals:
@@ -201,7 +201,7 @@ class GoalScorer:
                 scoring_player = "Player 2"
                 goal_counted = True
             else:
-                print(f"Player 2 has already reached maximum goals ({self.max_goals}). Goal not counted.")
+                # print(f"Player 2 has already reached maximum goals ({self.max_goals}). Goal not counted.")
                 return
         else:
             scoring_player = "Unknown"
@@ -315,9 +315,16 @@ class GoalScorer:
     def update_score(self, idx=0, amount=1):
         """Updates the score for a player"""
         if idx == 0:
-            self.player1_goals = min(self.player1_goals + amount, self.max_goals)
+            if self.max_goals > self.player1_goals > 0:
+                self.player1_goals = min(self.player1_goals + amount, self.max_goals)
+            elif self.player1_goals > self.max_goals:
+                self.player1_goals = self.max_goals
         elif idx == 1:
-            self.player2_goals = min(self.player2_goals + amount, self.max_goals)
+            if self.max_goals > self.player2_goals > 0:
+                self.player2_goals = min(self.player2_goals + amount, self.max_goals)
+                self.player2_goals = min(self.player2_goals + amount, self.max_goals)
+            elif self.player2_goals > self.max_goals:
+                self.player2_goals = self.max_goals
         else:
             print("Invalid player index")
 
