@@ -695,8 +695,8 @@ def main_gui():
     running_event.set()
 
     # Prozess-sichere Queues
-    raw_frame_queue = mp.Queue(maxsize=5)
-    results_queue = mp.Queue(maxsize=5)
+    raw_frame_queue = mp.Queue(maxsize=1)
+    results_queue = mp.Queue(maxsize=1)
     command_queue = mp.Queue(maxsize=10)  # Für UI-Kommandos
     camera_command_queue = mp.Queue(maxsize=10)  # Für Kamera-Kommandos
 

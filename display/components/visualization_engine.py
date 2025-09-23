@@ -58,7 +58,8 @@ class VisualizationEngine:
                 color = config.COLOR_BALL_LOW_CONFIDENCE   # Orange
 
             cv2.circle(frame, center_int, 3, color, -1)
-            cv2.circle(frame, center_int, int(radius), color, 2)
+            transformed_radius = int(radius * np.linalg.norm(self.M_persp[:,0])) # Approximate scaling
+            cv2.circle(frame, center_int, transformed_radius, color, 1)
 
             cv2.putText(frame, f"R: {radius:.1f}", (center_int[0] + 15, center_int[1] - 15),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
@@ -67,9 +68,10 @@ class VisualizationEngine:
 
             # Show Kalman velocity
             if velocity is not None:
-                cv2.arrowedLine(frame, transformed_center,
-                            (int(transformed_center[0] + velocity[0]*30), int(transformed_center[1] + velocity[1]*30)),
-                            (255, 0, 255), 2)
+                p1 = transformed_center
+                p2 = self._transform_points(np.array([[int(center[0] + velocity[0]*30), int(center[1] + velocity[1]*30)]], dtype=np.float32), self.M_persp)[0]
+
+                cv2.arrowedLine(frame, p1, p2, (255, 0, 255), 2)
                 
         # Draw smoothed points trail
         for i in range(1, len(transformed_smoothed_pts)):
@@ -96,14 +98,14 @@ class VisualizationEngine:
             # Zeichne die ausgerichtete Tor-Kontur wenn vorhanden
             if goal.get('contour') is not None:
                 transformed_contour = self._transform_points(goal['contour'], self.M_persp)
-                cv2.drawContours(frame, [transformed_contour], -1, config.COLOR_GOALS, 2)
+                cv2.drawContours(frame, [transformed_contour], -1, config.COLOR_GOALS, 1)
             else:
                 # Fallback auf rechteckige Bounds
                 x, y, w, h = goal['bounds']
                 transformed_bounds = self._transform_points(np.array([[x, y], [x + w, y + h]]), self.M_persp)
                 cv2.rectangle(frame, (int(transformed_bounds[0][0]), int(transformed_bounds[0][1])),
                                       (int(transformed_bounds[1][0]), int(transformed_bounds[1][1])),
-                                      config.COLOR_GOALS, 2)
+                                      config.COLOR_GOALS, 1)
 
             # Zeichne Tor-Center und Label
             center_x, center_y = goal['center']
@@ -132,7 +134,7 @@ class VisualizationEngine:
             # Transform the corners
             transformed_corners = self._transform_points(corners, self.M_persp)
             # Draw the transformed bounding box as a polygon
-            cv2.polylines(frame, [transformed_corners], True, (0, 0, 255), 2)
+            cv2.polylines(frame, [transformed_corners], True, (0, 0, 255), 1)
             
         # Transform team2 bounding boxes
         for box in player_data['team2_boxes']:
@@ -142,7 +144,7 @@ class VisualizationEngine:
             # Transform the corners
             transformed_corners = self._transform_points(corners, self.M_persp)
             # Draw the transformed bounding box as a polygon
-            cv2.polylines(frame, [transformed_corners], True, (255, 0, 0), 2)
+            cv2.polylines(frame, [transformed_corners], True, (255, 0, 0), 1)
 
     def apply_visualizations(self, frame, visualization_mode, ball_data=None, field_data=None, player_data=None, M_persp=None):
         """Wendet Visualisierungen basierend auf dem aktuellen Modus an"""
