@@ -56,7 +56,7 @@ class ScoreSection:
         score_widget = QWidget()
         score_widget.setStyleSheet("""
             QWidget {
-                background-color: #E8F5E8;
+                background-color: #535353;
                 border: 2px solid #4CAF50;
                 border-radius: 15px;
                 margin: 10px;

@@ -96,7 +96,7 @@ DISPLAY_INTERVAL = 1.0 / DISPLAY_FPS
 # - "standard": 30 FPS, 3 items/update - gut für normale Hardware  
 # - "smooth": 60 FPS, 5 items/update - empfohlen für flüssige Darstellung
 # - "high_performance": 120 FPS, 8 items/update - für leistungsstarke Hardware
-GUI_PERFORMANCE_PROFILE = "standard"  # "standard", "smooth", "high_performance"
+GUI_PERFORMANCE_PROFILE = "high_performance"  # "standard", "smooth", "high_performance"
 
 # Automatische Konfiguration basierend auf Profil
 if GUI_PERFORMANCE_PROFILE == "standard":

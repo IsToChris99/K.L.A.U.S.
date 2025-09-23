@@ -315,16 +315,11 @@ class GoalScorer:
     def update_score(self, idx=0, amount=1):
         """Updates the score for a player"""
         if idx == 0:
-            if self.max_goals > self.player1_goals > 0:
-                self.player1_goals = min(self.player1_goals + amount, self.max_goals)
-            elif self.player1_goals > self.max_goals:
-                self.player1_goals = self.max_goals
+            # Clamp player1 score between 0 and max_goals
+            self.player1_goals = max(0, min(self.player1_goals + amount, self.max_goals))
         elif idx == 1:
-            if self.max_goals > self.player2_goals > 0:
-                self.player2_goals = min(self.player2_goals + amount, self.max_goals)
-                self.player2_goals = min(self.player2_goals + amount, self.max_goals)
-            elif self.player2_goals > self.max_goals:
-                self.player2_goals = self.max_goals
+            # Clamp player2 score between 0 and max_goals
+            self.player2_goals = max(0, min(self.player2_goals + amount, self.max_goals))
         else:
             print("Invalid player index")
 
