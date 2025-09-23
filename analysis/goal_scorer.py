@@ -40,6 +40,10 @@ class GoalScorer:
         self.goal_scored_type = None
         
         self.debug_verbose = DEBUG_VERBOSE_OUTPUT
+
+        # Add debouncing for manual score updates
+        self.last_manual_update_time = 0
+        self.manual_update_cooldown = 0.01
     
     def is_ball_in_goal(self, ball_position, goals):
         """Checks if the ball is in one of the goals"""
@@ -314,6 +318,14 @@ class GoalScorer:
 
     def update_score(self, idx=0, amount=1):
         """Updates the score for a player"""
+        current_time = time.time()
+    
+    # Debouncing - prevent multiple rapid updates
+        if current_time - self.last_manual_update_time < self.manual_update_cooldown:
+            if self.debug_verbose:
+                print(f"Manual score update blocked - too soon (cooldown: {self.manual_update_cooldown}s)")
+            return
+        
         if idx == 0:
             # Clamp player1 score between 0 and max_goals
             self.player1_goals = max(0, min(self.player1_goals + amount, self.max_goals))
@@ -322,6 +334,8 @@ class GoalScorer:
             self.player2_goals = max(0, min(self.player2_goals + amount, self.max_goals))
         else:
             print("Invalid player index")
+
+        self.last_manual_update_time = current_time
 
     def set_max_goals(self, max_goals=10, is_infinity=False):
         """Sets the maximum goals for both players"""
