@@ -281,8 +281,8 @@ class ColorPicker(QWidget):
         complementary_h = (h + 90) % 180
         
         # Sorge dafür, dass die Komplementärfarbe immer gut sichtbar ist
-        complementary_v = 255 if v < 128 else v # Wenn Original dunkel, mache Komplementär hell
-        complementary_s = 255 if s < 128 else s # Wenn Original entsättigt, mache Komplementär satt
+        complementary_v = 255
+        complementary_s = 255
 
         # Konvertiere die finale HSV-Farbe nach BGR für die Anzeige
         complementary_hsv_np = np.uint8([[[complementary_h, complementary_s, complementary_v]]])
@@ -356,7 +356,12 @@ class ColorPicker(QWidget):
 
         # 5. Skaliere das finale Overlay und mische es mit dem Anzeigebild
         overlay_resized = cv2.resize(final_overlay, (self.display_image.shape[1], self.display_image.shape[0]))
-        final_image = cv2.addWeighted(self.display_image, 1.0, overlay_resized, 0.6, 0)
+        # Erstelle das finale Bild als Kopie des Anzeigebildes
+        final_image = self.display_image.copy()
+        
+        # Ersetze die Pixel in der Maske mit den Komplementärfarben
+        mask_pixels = np.any(overlay_resized > 0, axis=2)
+        final_image[mask_pixels] = overlay_resized[mask_pixels]
         
         self.label.setPixmap(self.get_pixmap(final_image))
 
