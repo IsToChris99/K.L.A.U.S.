@@ -142,7 +142,7 @@ class ColorPicker(QWidget):
         main_layout.addLayout(corners_layout)
 
         # Füge die restlichen Buttons hinzu
-        main_layout.addWidget(self.done_btn)
+        #main_layout.addWidget(self.done_btn)
         main_layout.addWidget(self.save_btn)
         
         self.setLayout(main_layout)
@@ -412,7 +412,7 @@ class ColorPicker(QWidget):
         elif self.current_calibration == 4:
             self.hsv_ranges_corners = self.compute_hsv_range_for_team(self.picked_colors_corners)
 
-        self.compute_hsv_ranges()
+        #self.compute_hsv_ranges()
         self.update_display()
 
     def reset_team1(self):
