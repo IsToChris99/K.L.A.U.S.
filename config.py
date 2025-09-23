@@ -91,6 +91,14 @@ GOAL_DIRECTION_THRESHOLD_DISTANCE = 200  # Distance threshold to goal for direct
 DISPLAY_FPS = 30
 DISPLAY_INTERVAL = 1.0 / DISPLAY_FPS
 
+
+
+GUI_UPDATE_FPS = 120
+GUI_MAX_ITEMS_PER_UPDATE = 5
+GUI_FPS_UPDATE_INTERVAL = 0.1
+
+GUI_UPDATE_INTERVAL_MS = int(1000 / GUI_UPDATE_FPS)  # Millisekunden zwischen GUI-Updates
+
 # Frame filtering - only send frames to GUI when detections are complete
 GUI_SHOW_ONLY_COMPLETE_DETECTIONS = True  # True: Nur Frames mit Field und Player anzeigen, False: Alle Frames anzeigen
 
