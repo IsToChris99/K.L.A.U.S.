@@ -441,7 +441,7 @@ class CombinedTracker:
             ball_speed = self.ball_result.get('ball_speed', 0.0) if self.ball_result else 0.0
 
         # Draw the speed text on the frame in a fixed position
-        speed_text = f"Speed: {ball_speed:.2f} cm/s"
+        speed_text = f"Speed: {ball_speed:.2f} m/s"
         cv2.putText(frame, speed_text, (10, frame.shape[0] - 40), 
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
 

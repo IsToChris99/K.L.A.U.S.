@@ -37,7 +37,7 @@ class BallSpeed:
                 speed_px_per_sec = distance_px / dt
                 
                 # Convert to m/s (px/s * cm/px * m/cm)
-                calculated_speed = speed_px_per_sec * self.px_to_cm_ratio / 100.0
+                calculated_speed = speed_px_per_sec * 1 / self.px_to_cm_ratio / 100.0
                 self.speed = calculated_speed
                 self.last_actual_speed = self.speed
                 
