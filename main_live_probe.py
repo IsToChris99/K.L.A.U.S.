@@ -3,19 +3,21 @@ import numpy as np
 import time
 from threading import Thread, Lock
 from queue import Queue, LifoQueue, Empty
+from PySide6.QtWidgets import QApplication
+import sys
 
 # Local imports
 from detection.ball_detector import BallDetector
 from detection.field_detector_markers import FieldDetector
 from analysis.goal_scorer import GoalScorer
-from analysis.ball_speed import calculate_ball_speed
 from detection.player_detector import PlayerDetector
+from utils.color_picker import ColorPicker
 from input.ids_camera import IDS_Camera
 from processing.cpu_preprocessor import CPUPreprocessor
 from processing.gpu_preprocessor import GPUPreprocessor
+from analysis.ball_speed import calculate_ball_speed
 import config
-#für Heatmap
-from analysis.heatmap_generator import create_heatmap_from_points 
+from analysis.heatmap_generator import create_heatmap_from_points
 
 # ================== COMBINED TRACKER ==================
 
@@ -34,14 +36,9 @@ class CombinedTracker:
         self.goal_scorer = GoalScorer()
         self.player_detector = PlayerDetector()
 
-        #for Ball Speed
-        self.ball_speed = 0.0
-        self.last_ball_position = None
-        self.pixel_to_m_ratio = config.FIELD_WIDTH_M / config.DETECTION_WIDTH
-
         self.player_result = None
         self.player_thread = None
-        
+
         # Calibration mode - only activate on key press
         self.calibration_mode = True
         self.calibration_requested = True
@@ -59,6 +56,7 @@ class CombinedTracker:
         self.ball_thread = None
         self.field_thread = None
         self.frame_reader_thread = None
+        self.color_thread = None
         self.running = False
         self.frame_queue = LifoQueue(maxsize=1) 
         self.result_lock = Lock()
@@ -75,7 +73,6 @@ class CombinedTracker:
         self.processing_fps = 0
         self.last_fps_time = time.time()
         self.last_frame_count = 0
-        self.last_frame_time = None #delete if it does not work
 
         # Camera calibration - make undistortion optional for performance
         self.camera_calibration = CPUPreprocessor(config.CAMERA_CALIBRATION_FILE)
@@ -95,7 +92,14 @@ class CombinedTracker:
         self.velocity = 0.0
         self.px_to_cm_ratio = 0
         #self.ball_speed = BallSpeed()
-        
+
+        # Ball speed implementation
+        self.ball_speed = 0.0
+        self.last_ball_position = None
+        self.last_ball_timestamp_ns = None
+        self.pixel_to_m_ratio = config.FIELD_WIDTH_M / config.DETECTION_WIDTH
+        self.ball_speed_decay_factor = 0.85  # Decay per frame when ball is lost
+
     def frame_reader_thread_method(self):
         """Frame reading thread - only reads raw Bayer frames"""
         read_duration = 0.0
@@ -136,8 +140,14 @@ class CombinedTracker:
                     break
             except Empty:
                 continue
-                
-            
+
+            # Get timestamp from metadata if available, else use time.time_ns()
+            metadata = getattr(self.camera, 'last_metadata', None)
+            if metadata and 'timestamp_ns' in metadata:
+                current_timestamp_ns = metadata['timestamp_ns']
+            else:
+                current_timestamp_ns = time.time_ns()
+
             # Field corners for restricted ball search
             field_corners = None
             goals = []
@@ -151,44 +161,49 @@ class CombinedTracker:
                 detection_result = self.ball_tracker.detect_ball(frame, field_corners)
                 self.ball_tracker.update_tracking(detection_result, field_corners)
 
-
-                # if count % 8 == 0:  # Every 10 frames
-                #     self.velocity = self.ball_speed.update(detection_result[0], self.timestamp_ns if self.timestamp_ns > 0 else time.perf_counter_ns(), self.px_to_cm_ratio)
-                #print(f"\rBall Velocity: {self.velocity:.2f} cm/s", end="")
-
-                # Goal scoring system update
                 ball_position = detection_result[0] if detection_result[0] is not None else None
                 ball_velocity = None
-                
+
                 # If no velocity from detection, get it from Kalman tracker
                 if self.ball_tracker.kalman_tracker.initialized:
-                    ball_velocity = self.ball_tracker.kalman_tracker.get_velocity()                
+                    ball_velocity = self.ball_tracker.kalman_tracker.get_velocity()
                 self.goal_scorer.update_ball_tracking(
-                    ball_position, 
-                    goals, 
-                    field_corners, 
+                    ball_position,
+                    goals,
+                    field_corners,
                     self.ball_tracker.missing_counter,
                     ball_velocity
                 )
 
-                # Calculate ball speed using the imported function
-                current_time = time.time() # Current time in seconds
-                fps = 1.0 / (current_time - self.last_frame_time) if (current_time - self.last_frame_time) > 0 else config.FRAME_RATE_TARGET #Change to actual frame rate
-                self.ball_speed, self.last_ball_position = calculate_ball_speed(
-                    ball_position,
-                    self.last_ball_position,
-                    fps,
-                    self.pixel_to_m_ratio
-                )
+                # Ball speed calculation with timestamp and smooth decay
+                if ball_position is not None:
+                    # Ball detected, calculate speed normally
+                    dt = None
+                    if self.last_ball_timestamp_ns is not None:
+                        dt = (current_timestamp_ns - self.last_ball_timestamp_ns) / 1e9  # seconds
+                    if self.last_ball_position is not None and dt and dt > 0:
+                        dx = ball_position[0] - self.last_ball_position[0]
+                        dy = ball_position[1] - self.last_ball_position[1]
+                        distance_px = np.sqrt(dx**2 + dy**2)
+                        speed_px_per_sec = distance_px / dt
+                        self.ball_speed = speed_px_per_sec * self.pixel_to_m_ratio
+                    else:
+                        self.ball_speed = 0.0
+                    self.last_ball_position = ball_position
+                    self.last_ball_timestamp_ns = current_timestamp_ns
+                else:
+                    # Ball lost, apply decay to last speed
+                    self.ball_speed *= self.ball_speed_decay_factor
+                    # Do not update last_ball_position or last_ball_timestamp_ns
 
                 with self.result_lock:
                     self.ball_result = {
                         'detection': detection_result,
                         'smoothed_pts': list(self.ball_tracker.smoothed_pts),
                         'missing_counter': self.ball_tracker.missing_counter,
-                        'ball_speed': self.ball_speed 
+                        'ball_speed': self.ball_speed
                     }
-                
+                    
             
     def field_tracking_thread(self):
         """Thread for Field-Tracking"""
@@ -255,6 +270,22 @@ class CombinedTracker:
                     'team2': boxes_t2
                 }
 
+    def color_picker_thread(self):
+        """Thread für den ColorPicker."""
+        try:
+            # Check if QApplication already exists
+            app = QApplication.instance()
+            if app is None:
+                app = QApplication(sys.argv)
+            
+            with self.result_lock:
+                frame = self.current_frame.copy() if self.current_frame is not None else np.zeros((480, 640, 3), dtype=np.uint8)
+            
+            picker = ColorPicker(frame)
+            picker.show()
+            app.exec()
+        except Exception as e:
+            print(f"Error starting color picker: {e}")
 
     def draw_player_visualization(self, frame):
         with self.result_lock:
@@ -273,7 +304,7 @@ class CombinedTracker:
             # Draw the transformed bounding box as a polygon
             cv2.polylines(frame, [transformed_corners], True, (0, 0, 255), 2)
             
-        # Transform team2 bounding boxes  
+        # Transform team2 bounding boxes
         for box in player_result_copy['team2']:
             x, y, w, h = box
             # Create corner points of the bounding box
@@ -282,8 +313,6 @@ class CombinedTracker:
             transformed_corners = self._transform_points(corners, self.M_persp)
             # Draw the transformed bounding box as a polygon
             cv2.polylines(frame, [transformed_corners], True, (255, 0, 0), 2)
-
-
 
     def _transform_points(self, points_array, M):
         if points_array.size == 0:
@@ -310,7 +339,6 @@ class CombinedTracker:
             if valid_pts:
                 transformed_smoothed_pts = self._transform_points(np.array(valid_pts), self.M_persp)
         missing_counter = ball_result_copy['missing_counter']
-        ball_speed = ball_result_copy.get('ball_speed', 0.0)
 
         # Draw ball info
         if detection[0] is not None:
@@ -333,10 +361,6 @@ class CombinedTracker:
                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
             cv2.putText(frame, f"Conf: {confidence:.2f}", (center_int[0] + 15, center_int[1] + 5),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1)
-
-            # Show ball speed
-            cv2.putText(frame, f"Speed: {self.ball_speed:.2f} m/s", (center_int[0] + 15, center_int[1] + 25),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1)
 
             # Show Kalman velocity
             if velocity is not None:
@@ -421,8 +445,18 @@ class CombinedTracker:
         cv2.putText(frame, f"Processing: {self.processing_fps:.1f} FPS", 
                    (10, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
         
+        # display Ball Speed information
+        with self.result_lock:
+            # Default to 0.0 if the result dictionary or the speed key doesn't exist yet
+            ball_speed = self.ball_result.get('ball_speed', 0.0) if self.ball_result else 0.0
+
+        # Draw the speed text on the frame in a fixed position
+        speed_text = f"Speed: {ball_speed:.2f} m/s"
+        cv2.putText(frame, speed_text, (10, frame.shape[0] - 40), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+
         # Show key commands
-        cv2.putText(frame, "Keys: 1=Ball, 2=Field, 3=Both, r=Calibration, s=Screenshot, g=Reset Score, r=Reset Field Calibration, x=Reload GPU, c=Toggle CPU/GPU, h=Help", 
+        cv2.putText(frame, "Keys: 1=Ball, 2=Field, 3=Both, r=Calibration, s=Screenshot, g=Reset Score, x=Reload GPU, c=Toggle CPU/GPU, p=Color Picker, l=Reload Colors, a=Auto Reload, h=Help", 
                    (10, frame.shape[0] - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1)
     
     def start_threads(self):
@@ -444,6 +478,29 @@ class CombinedTracker:
         if self.visualization_mode in [self.COMBINED]: 
             self.player_thread = Thread(target=self.player_tracking_thread, daemon=True)
             self.player_thread.start()
+
+        # Note: color_picker_thread should be started manually by user input, not automatically
+    
+    def start_color_picker(self):
+        """Start color picker in a separate thread"""
+        if self.color_thread and self.color_thread.is_alive():
+            print("Color picker is already running")
+            return
+        
+        self.color_thread = Thread(target=self.color_picker_thread, daemon=True)
+        self.color_thread.start()
+        print("Color picker started")
+    
+    def reload_player_colors(self):
+        """Lädt die Spielerfarben neu aus der colors.json Datei"""
+        self.player_detector.load_colors()
+        print("Spielerfarben erfolgreich neu geladen!")
+    
+    def toggle_auto_color_reload(self):
+        """Schaltet das automatische Neuladen der Farben ein/aus"""
+        self.player_detector.auto_reload = not self.player_detector.auto_reload
+        status = "aktiviert" if self.player_detector.auto_reload else "deaktiviert"
+        print(f"Automatisches Neuladen der Farben {status}")
 
     def stop_threads(self):
         """Stops the tracking threads"""
@@ -467,6 +524,9 @@ class CombinedTracker:
 
         if self.player_thread and self.player_thread.is_alive():
             self.player_thread.join(timeout=1.0)
+
+        if self.color_thread and self.color_thread.is_alive():
+            self.color_thread.join(timeout=1.0)
     
     def toggle_processing_mode(self):
         """Toggles between CPU and GPU processing"""
@@ -497,6 +557,9 @@ class CombinedTracker:
         print("  'r' - Reset field calibration")
         print("  'x' - Force GPU shader reload")
         print("  'c' - Toggle CPU/GPU processing")
+        print("  'p' - Start color picker")
+        print("  'l' - Reload player colors (colors.json)")
+        print("  'a' - Toggle auto color reload")
         print("  'h' - Show help")
         print("=" * 60)
 
@@ -671,6 +734,18 @@ class CombinedTracker:
                 
                 elif key == ord('c'):
                     self.toggle_processing_mode()
+                
+                elif key == ord('p'):
+                    # Start color picker
+                    self.start_color_picker()
+                
+                elif key == ord('l'):
+                    # Reload player colors
+                    self.reload_player_colors()
+                
+                elif key == ord('a'):
+                    # Toggle auto color reload
+                    self.toggle_auto_color_reload()
 
                 #print(f"\r{(time.time() - measure_time) * 1000000}", end="")
 
@@ -690,12 +765,11 @@ class CombinedTracker:
                 create_heatmap_from_points(
                     points=self.ball_tracker.all_ball_positions,
                     dimensions=heatmap_dimensions,
-                    output_path="results/live_heatmap.png" # Puedes cambiar la ruta de guardado aquí
+                    output_path="results/live_heatmap.png" 
                 )
             else:
                 print("No ball positions were recorded, skipping heatmap generation.")
 
-            print(f"\nCombined Tracker finished.")
 
 # ================== MAIN PROGRAM ==================
 
