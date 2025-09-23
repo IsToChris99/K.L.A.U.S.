@@ -88,7 +88,7 @@ class CombinedTracker:
         self.use_gpu_processing = True  # Start with GPU processing by default
         
         # Ball speed calculator - now using dedicated class
-        self.ball_speed_calculator = BallSpeed(decay_factor=0.85)
+        self.ball_speed_calculator = BallSpeed(decay_factor=0.85, speed_buffer_size=10)
         self.px_to_cm_ratio = 0 # Decay per frame when ball is lost
 
     def frame_reader_thread_method(self):
@@ -171,7 +171,7 @@ class CombinedTracker:
                 )
 
                 # Check if score changed (goal was scored)
-                if self.goal_scorer.score != previous_score:
+                if self.goal_scorer.get_score()['total_goals'] != previous_score:
                     max_speed = self.ball_speed_calculator.get_max_recent_speed()
                     max_speed_kmh = self.ball_speed_calculator.get_max_recent_speed_kmh()
                     print(f"GOAL! Maximum speed in last sequence: {max_speed:.2f} m/s ({max_speed_kmh:.2f} km/h)")

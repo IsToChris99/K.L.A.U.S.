@@ -15,7 +15,7 @@ from utils.color_picker import ColorPicker
 from input.ids_camera import IDS_Camera
 from processing.cpu_preprocessor import CPUPreprocessor
 from processing.gpu_preprocessor import GPUPreprocessor
-from analysis.ball_speed import calculate_ball_speed, calculate_ball_speed_with_timestamp, AdaptiveBallSpeedCalculator
+from analysis.ball_speed import BallSpeed
 import config
 from analysis.heatmap_generator import create_heatmap_from_points
 
@@ -87,23 +87,10 @@ class CombinedTracker:
         # Processing mode control
         self.use_gpu_processing = True  # Start with GPU processing by default
         
-        # Ball speed calculator
-        self.timestamp_ns = 0
-        self.velocity = 0.0
-        self.px_to_cm_ratio = 0
-        #self.ball_speed = BallSpeed()
-
-        # Ball speed implementation with adaptive smoothing
+        # Ball speed calculator - now using dedicated class
         self.ball_speed = 0.0
-        self.last_ball_position = None
-        self.last_ball_timestamp_ns = None
-        self.pixel_to_m_ratio = config.FIELD_WIDTH_M / config.DETECTION_WIDTH
-        
-        # Initialize adaptive ball speed calculator
-        self.adaptive_speed_calculator = AdaptiveBallSpeedCalculator(
-            max_history_size=20, 
-            pixel_to_cm_ratio=self.pixel_to_m_ratio * 100  # Convert to cm/m
-        )
+        self.ball_speed_calculator = BallSpeed(decay_factor=0.85, speed_buffer_size=10)
+        self.px_to_cm_ratio = 0 # Decay per frame when ball is lost
         
         # Store metadata for synchronization
         self.current_frame_metadata = None
@@ -150,7 +137,13 @@ class CombinedTracker:
             except Empty:
                 continue
                 
-            
+            # Get timestamp from metadata if available, else use time.time_ns()
+            metadata = getattr(self.camera, 'last_metadata', None)
+            if metadata and 'timestamp_ns' in metadata:
+                current_timestamp_ns = metadata['timestamp_ns']
+            else:
+                current_timestamp_ns = time.time_ns()
+
             # Field corners for restricted ball search
             field_corners = None
             goals = []
@@ -163,55 +156,34 @@ class CombinedTracker:
                 # Ball detection with field_corners
                 detection_result = self.ball_tracker.detect_ball(frame, field_corners)
                 self.ball_tracker.update_tracking(detection_result, field_corners)
-                #speed = self.ball_tracker.get_ball_speed()
-                #print(f"\rBall Speed Vector: {np.abs(speed * self.pixel_to_m_ratio * 250)}", end="")
 
-
-                # if count % 8 == 0:  # Every 10 frames
-                #     self.velocity = self.ball_speed.update(detection_result[0], self.timestamp_ns if self.timestamp_ns > 0 else time.perf_counter_ns(), self.px_to_cm_ratio)
-                #print(f"\rBall Velocity: {self.velocity:.2f} cm/s", end="")
-
-                # Goal scoring system update
                 ball_position = detection_result[0] if detection_result[0] is not None else None
                 ball_velocity = None
                 
                 # If no velocity from detection, get it from Kalman tracker
                 if self.ball_tracker.kalman_tracker.initialized:
                     ball_velocity = self.ball_tracker.kalman_tracker.get_velocity()                
+                # Check if goal was scored before updating speed
+                previous_score = self.goal_scorer.get_score()['total_goals']
+
                 self.goal_scorer.update_ball_tracking(
-                    ball_position, 
-                    goals, 
-                    field_corners, 
+                    ball_position,
+                    goals,
+                    field_corners,
                     self.ball_tracker.missing_counter,
                     ball_velocity
                 )
 
-                # Calculate ball speed using adaptive smoothing
-                current_timestamp_ns = None
-                with self.result_lock:
-                    if self.current_frame_metadata:
-                        current_timestamp_ns = self.current_frame_metadata.get('timestamp_ns')
+                # Check if score changed (goal was scored)
+                if self.goal_scorer.get_score()['total_goals'] != previous_score:
+                    max_speed = self.ball_speed_calculator.get_max_recent_speed()
+                    max_speed_kmh = self.ball_speed_calculator.get_max_recent_speed_kmh()
+                    print(f"GOAL! Maximum speed in last sequence: {max_speed:.2f} m/s ({max_speed_kmh:.2f} km/h)")
+                    
+                    # Optionally clear the buffer after a goal
+                    self.ball_speed_calculator.clear_speed_buffer()
 
-                # Use adaptive ball speed calculator for smoother, more accurate results
-                current_ball_speed = self.adaptive_speed_calculator.update(
-                    ball_position,  # Can be None if ball not detected
-                    current_timestamp_ns
-                )
-                
-                # Optional debug output for adaptive speed calculator
-                # debug_info = self.adaptive_speed_calculator.get_debug_info()
-                # if current_ball_speed > 0.1:
-                #     print(f"Speed: {current_ball_speed:.2f} m/s, Category: {debug_info['speed_category']}, Window: {debug_info['window_size']}")
-                
-                # Keep the old simple method for comparison/fallback (comment out one of the methods)
-                # if ball_position and current_timestamp_ns:
-                #     simple_speed, self.last_ball_position, self.last_ball_timestamp_ns = calculate_ball_speed_with_timestamp(
-                #         ball_position,
-                #         current_timestamp_ns,
-                #         self.last_ball_position,
-                #         self.last_ball_timestamp_ns,
-                #         self.pixel_to_m_ratio
-                #     )
+                self.ball_speed = self.ball_speed_calculator.update(ball_position, current_timestamp_ns, self.px_to_cm_ratio)
 
                 
                 with self.result_lock:
@@ -219,7 +191,7 @@ class CombinedTracker:
                         'detection': detection_result,
                         'smoothed_pts': list(self.ball_tracker.smoothed_pts),
                         'missing_counter': self.ball_tracker.missing_counter,
-                        'ball_speed': current_ball_speed
+                        'ball_speed': self.ball_speed
                     }
                 
             
