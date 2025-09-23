@@ -402,6 +402,16 @@ class ColorPicker(QWidget):
             self.picked_colors_corners.append(hsv_color_list)
             print(f"Corners color picked: {tuple(hsv_color_list)}")
             # self.undo_stack.append(self.picked_colors_corners)
+
+        if self.current_calibration == 1:
+            self.hsv_ranges_team1 = self.compute_hsv_range_for_team(self.picked_colors_team1)
+        elif self.current_calibration == 2:
+            self.hsv_ranges_team2 = self.compute_hsv_range_for_team(self.picked_colors_team2)
+        elif self.current_calibration == 3:
+            self.hsv_ranges_ball = self.compute_hsv_range_for_team(self.picked_colors_ball)
+        elif self.current_calibration == 4:
+            self.hsv_ranges_corners = self.compute_hsv_range_for_team(self.picked_colors_corners)
+
         self.compute_hsv_ranges()
         self.update_display()
 
@@ -603,35 +613,22 @@ class ColorPicker(QWidget):
     #     print(f"Saved as {filepath}")
 
     def save_json(self):
-        """Speichert die Konfiguration. Behält alte Werte bei, wenn keine neuen ausgewählt wurden."""
+        """Speichert den aktuellen Zustand aller HSV-Ranges in die JSON-Datei."""
         config = {}
 
-        # Team 1: Wenn neue Farben ausgewählt wurden, berechne sie. Ansonsten behalte die alten.
-        if self.picked_colors_team1:
-            ranges = self.compute_hsv_range_for_team(self.picked_colors_team1)
-            config["team1"] = {"ranges": [{"lower": r[0].tolist(), "upper": r[1].tolist()} for r in ranges]}
-        elif self.hsv_ranges_team1:
+        # Nimm einfach die aktuellen Werte aus den hsv_ranges-Listen.
+        # Diese enthalten entweder die alten, geladenen Werte oder die
+        # neuen, durch die Kalibrierung aktualisierten Werte.
+        if self.hsv_ranges_team1:
             config["team1"] = {"ranges": [{"lower": r[0].tolist(), "upper": r[1].tolist()} for r in self.hsv_ranges_team1]}
         
-        # Team 2:
-        if self.picked_colors_team2:
-            ranges = self.compute_hsv_range_for_team(self.picked_colors_team2)
-            config["team2"] = {"ranges": [{"lower": r[0].tolist(), "upper": r[1].tolist()} for r in ranges]}
-        elif self.hsv_ranges_team2:
+        if self.hsv_ranges_team2:
             config["team2"] = {"ranges": [{"lower": r[0].tolist(), "upper": r[1].tolist()} for r in self.hsv_ranges_team2]}
 
-        # Ball:
-        if self.picked_colors_ball:
-            ranges = self.compute_hsv_range_for_team(self.picked_colors_ball)
-            config["ball"] = {"ranges": [{"lower": r[0].tolist(), "upper": r[1].tolist()} for r in ranges]}
-        elif self.hsv_ranges_ball:
+        if self.hsv_ranges_ball:
             config["ball"] = {"ranges": [{"lower": r[0].tolist(), "upper": r[1].tolist()} for r in self.hsv_ranges_ball]}
 
-        # Corners:
-        if self.picked_colors_corners:
-            ranges = self.compute_hsv_range_for_team(self.picked_colors_corners)
-            config["corners"] = {"ranges": [{"lower": r[0].tolist(), "upper": r[1].tolist()} for r in ranges]}
-        elif self.hsv_ranges_corners:
+        if self.hsv_ranges_corners:
             config["corners"] = {"ranges": [{"lower": r[0].tolist(), "upper": r[1].tolist()} for r in self.hsv_ranges_corners]}
 
         project_folder = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
