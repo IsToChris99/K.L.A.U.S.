@@ -354,9 +354,10 @@ class CombinedTracker:
 
             # Show Kalman velocity
             if velocity is not None:
-                cv2.arrowedLine(frame, transformed_center,
-                            (int(transformed_center[0] + velocity[0]*30), int(transformed_center[1] + velocity[1]*30)),
-                            (255, 0, 255), 2)
+                p1 = transformed_center
+                p2 = self._transform_points(np.array([[int(center[0] + velocity[0]*20), int(center[1] + velocity[1]*20)]], dtype=np.float32), self.M_persp)[0]
+
+                cv2.arrowedLine(frame, p1, p2, (255, 0, 255), 2)
                 
         # Draw smoothed points trail
         for i in range(1, len(transformed_smoothed_pts)):
