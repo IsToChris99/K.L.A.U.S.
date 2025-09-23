@@ -187,54 +187,8 @@ class ColorPicker(QWidget):
         
         return complementary_bgr.tolist()
 
-    # def update_display(self):
-    #     """Refreshes the display. Each category is displayed in its complementary color."""
-    #     if not self.mask_visible:
-    #         self.label.setPixmap(self.get_pixmap(self.display_image))
-    #         return
-
-    #     hsv_image = cv2.cvtColor(self.original_image, cv2.COLOR_BGR2HSV)
-        
-    #     final_overlay = np.zeros_like(self.original_image)
-
-    #     categories = [
-    #         (self.hsv_ranges_team1, self.picked_colors_team1),
-    #         (self.hsv_ranges_team2, self.picked_colors_team2),
-    #         (self.hsv_ranges_ball, self.picked_colors_ball),
-    #         (self.hsv_ranges_corners, self.picked_colors_corners)
-    #     ]
-
-    #     for hsv_ranges, picked_colors in categories:
-    #         if not hsv_ranges:
-    #             continue 
-
-    #         rep_color_hsv = self.get_representative_color(picked_colors)
-            
-    #         comp_color_bgr = self.get_complementary_bgr(rep_color_hsv)
-
-    #         # Mask
-    #         category_mask = np.zeros(hsv_image.shape[:2], dtype=np.uint8)
-    #         for min_hsv, max_hsv in hsv_ranges:
-    #             lower_bound = np.array(min_hsv)
-    #             upper_bound = np.array(max_hsv)
-    #             partial_mask = cv2.inRange(hsv_image, lower_bound, upper_bound)
-    #             category_mask = cv2.bitwise_or(category_mask, partial_mask)
-            
-    #         # Complementary color
-    #         final_overlay[category_mask > 0] = comp_color_bgr
-
-    #     # Skale
-    #     overlay_resized = cv2.resize(final_overlay, (self.display_image.shape[1], self.display_image.shape[0]))
-
-    #     final_image = self.display_image.copy()
-        
-    #     mask_pixels = np.any(overlay_resized > 0, axis=2)
-    #     final_image[mask_pixels] = overlay_resized[mask_pixels]
-        
-    #     self.label.setPixmap(self.get_pixmap(final_image))
-
     def update_display(self):
-        """Aktualisiert die Anzeige. Jede Kategorie wird in ihrer Komplementärfarbe angezeigt."""
+        """Refreshes the display. Each category is displayed in its complementary color."""
         if not self.mask_visible:
             self.label.setPixmap(self.get_pixmap(self.display_image))
             return
@@ -253,13 +207,10 @@ class ColorPicker(QWidget):
             if not hsv_ranges:
                 continue
 
-            # --- DIE ENTSCHEIDENDE ÄNDERUNG ---
             rep_color_hsv = None
             if picked_colors:
-                # 1. Wenn wir in dieser Sitzung Farben ausgewählt haben, nutze diese.
                 rep_color_hsv = self.get_representative_color(picked_colors)
             elif hsv_ranges:
-                # 2. ANSONSTEN (z.B. nach Neustart), leite die Farbe aus den gespeicherten Ranges ab.
                 min_hsv = hsv_ranges[0][0]
                 max_hsv = hsv_ranges[0][1]
                 rep_color_hsv = [
@@ -277,7 +228,6 @@ class ColorPicker(QWidget):
             
             final_overlay[category_mask > 0] = comp_color_bgr
 
-        # Der Rest der Methode bleibt gleich
         overlay_resized = cv2.resize(final_overlay, (self.display_image.shape[1], self.display_image.shape[0]))
         final_image = self.display_image.copy()
         mask_pixels = np.any(overlay_resized > 0, axis=2)
