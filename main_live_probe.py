@@ -15,7 +15,7 @@ from utils.color_picker import ColorPicker
 from input.ids_camera import IDS_Camera
 from processing.cpu_preprocessor import CPUPreprocessor
 from processing.gpu_preprocessor import GPUPreprocessor
-from analysis.ball_speed import calculate_ball_speed
+from analysis.ball_speed import BallSpeed
 import config
 from analysis.heatmap_generator import create_heatmap_from_points
 
@@ -87,18 +87,9 @@ class CombinedTracker:
         # Processing mode control
         self.use_gpu_processing = True  # Start with GPU processing by default
         
-        # Ball speed calculator
-        self.timestamp_ns = 0
-        self.velocity = 0.0
-        self.px_to_cm_ratio = 0
-        #self.ball_speed = BallSpeed()
-
-        # Ball speed implementation
-        self.ball_speed = 0.0
-        self.last_ball_position = None
-        self.last_ball_timestamp_ns = None
-        self.pixel_to_m_ratio = config.FIELD_WIDTH_M / config.DETECTION_WIDTH
-        self.ball_speed_decay_factor = 0.85  # Decay per frame when ball is lost
+        # Ball speed calculator - now using dedicated class
+        self.ball_speed_calculator = BallSpeed(decay_factor=0.85)
+        self.px_to_cm_ratio = 0 # Decay per frame when ball is lost
 
     def frame_reader_thread_method(self):
         """Frame reading thread - only reads raw Bayer frames"""
@@ -175,26 +166,28 @@ class CombinedTracker:
                     ball_velocity
                 )
 
-                # Ball speed calculation with timestamp and smooth decay
-                if ball_position is not None:
-                    # Ball detected, calculate speed normally
-                    dt = None
-                    if self.last_ball_timestamp_ns is not None:
-                        dt = (current_timestamp_ns - self.last_ball_timestamp_ns) / 1e9  # seconds
-                    if self.last_ball_position is not None and dt and dt > 0:
-                        dx = ball_position[0] - self.last_ball_position[0]
-                        dy = ball_position[1] - self.last_ball_position[1]
-                        distance_px = np.sqrt(dx**2 + dy**2)
-                        speed_px_per_sec = distance_px / dt
-                        self.ball_speed = speed_px_per_sec * self.pixel_to_m_ratio
-                    else:
-                        self.ball_speed = 0.0
-                    self.last_ball_position = ball_position
-                    self.last_ball_timestamp_ns = current_timestamp_ns
-                else:
-                    # Ball lost, apply decay to last speed
-                    self.ball_speed *= self.ball_speed_decay_factor
-                    # Do not update last_ball_position or last_ball_timestamp_ns
+                self.ball_speed = self.ball_speed_calculator.update(ball_position, current_timestamp_ns, self.px_to_cm_ratio)
+
+                # # Ball speed calculation with timestamp and smooth decay
+                # if ball_position is not None:
+                #     # Ball detected, calculate speed normally
+                #     dt = None
+                #     if self.last_ball_timestamp_ns is not None:
+                #         dt = (current_timestamp_ns - self.last_ball_timestamp_ns) / 1e9  # seconds
+                #     if self.last_ball_position is not None and dt and dt > 0:
+                #         dx = ball_position[0] - self.last_ball_position[0]
+                #         dy = ball_position[1] - self.last_ball_position[1]
+                #         distance_px = np.sqrt(dx**2 + dy**2)
+                #         speed_px_per_sec = distance_px / dt
+                #         self.ball_speed = speed_px_per_sec * self.px_to_cm_ratio / 100.0  # Convert to m/s
+                #     else:
+                #         self.ball_speed = 0.0
+                #     self.last_ball_position = ball_position
+                #     self.last_ball_timestamp_ns = current_timestamp_ns
+                # else:
+                #     # Ball lost, apply decay to last speed
+                #     self.ball_speed *= self.ball_speed_decay_factor
+                #     # Do not update last_ball_position or last_ball_timestamp_ns
 
                 with self.result_lock:
                     self.ball_result = {
